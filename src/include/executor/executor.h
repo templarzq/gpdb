@@ -301,8 +301,9 @@ extern TupleTableSlot *ExecProcNode(PlanState *node);
 extern Node *MultiExecProcNode(PlanState *node);
 extern void ExecEndNode(PlanState *node);
 extern bool ExecShutdownNode(PlanState *node);
-
 extern void ExecSquelchNode(PlanState *node);
+
+extern void ExecProcNodeBatch(PlanState *node,TupleTableSlots *resultSlots);
 
 typedef enum
 {
@@ -352,6 +353,7 @@ extern bool isJoinExprNull(List *joinExpr, ExprContext *econtext);
  * prototypes from functions in execScan.c
  */
 typedef TupleTableSlot *(*ExecScanAccessMtd) (ScanState *node);
+
 typedef bool (*ExecScanRecheckMtd) (ScanState *node, TupleTableSlot *slot);
 
 extern TupleTableSlot *ExecScan(ScanState *node, ExecScanAccessMtd accessMtd,
@@ -359,6 +361,8 @@ extern TupleTableSlot *ExecScan(ScanState *node, ExecScanAccessMtd accessMtd,
 extern void ExecAssignScanProjectionInfo(ScanState *node);
 extern void ExecAssignScanProjectionInfoWithVarno(ScanState *node, Index varno);
 extern void ExecScanReScan(ScanState *node);
+
+extern void ExecScanBatch(ScanState *node,TupleTableSlots *resultSlots);
 
 /*
  * prototypes from functions in execTuples.c

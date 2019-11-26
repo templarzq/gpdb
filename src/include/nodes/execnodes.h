@@ -1706,6 +1706,7 @@ typedef struct ScanState
 	PlanState	ps;				/* its first field is NodeTag */
 	Relation	ss_currentRelation;
 	TupleTableSlot *ss_ScanTupleSlot;
+	TupleTableSlots ss_resultSlots;
 } ScanState;
 
 /* ----------------

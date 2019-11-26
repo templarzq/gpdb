@@ -15,8 +15,8 @@ override CPPFLAGS := -I$(libpq_srcdir) $(CPPFLAGS)
 
 
 OBJS = execAmi.o execCurrent.o execGrouping.o execIndexing.o execJunk.o \
-       execMain.o execParallel.o execProcnode.o execQual.o \
-       execScan.o execTuples.o \
+       execMain.o execParallel.o execProcnode.o execProcnodeBatch.o execQual.o \
+       execScan.o execScanBatch.o execTuples.o \
        execUtils.o functions.o instrument.o nodeAppend.o nodeAgg.o \
        nodeBitmapAnd.o nodeBitmapOr.o \
        nodeBitmapHeapscan.o nodeBitmapIndexscan.o nodeCustom.o nodeGather.o \

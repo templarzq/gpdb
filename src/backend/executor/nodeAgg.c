@@ -450,9 +450,10 @@ fetch_input_tuple(AggState *aggstate)
 									NULL))
 			return NULL;
 		slot = aggstate->sort_slot;
-	}
-	else
+	} else {
 		slot = ExecProcNode(outerPlanState(aggstate));
+	}
+		
 
 	if (!TupIsNull(slot) && aggstate->sort_out)
 		tuplesort_puttupleslot(aggstate->sort_out, slot);
@@ -2009,6 +2010,8 @@ agg_retrieve_direct(AggState *aggstate)
 				 * Process each outer-plan tuple, and then fetch the next one,
 				 * until we exhaust the outer plan or cross a group boundary.
 				 */
+				TupleTableSlots resultSlots;
+
 				for (;;)
 				{
 					if (DO_AGGSPLIT_COMBINE(aggstate->aggsplit))
@@ -2019,39 +2022,83 @@ agg_retrieve_direct(AggState *aggstate)
 					/* Reset per-input-tuple context after each tuple */
 					ResetExprContext(tmpcontext);
 
-					outerslot = fetch_input_tuple(aggstate);
-					if (TupIsNull(outerslot))
-					{
-						/* no more outer-plan tuples available */
-						if (hasGroupingSets)
-						{
-							aggstate->input_done = true;
+					if(outerPlanState(aggstate)->type == T_SeqScan){
+						bool bBreak = false;
+						ExecProcNodeBatch(outerPlanState(aggstate),&resultSlots);
+						for(int i=0;i<resultSlots.slotNum;++i){
+							outerslot = resultSlots.slots[i];
+							if (TupIsNull(outerslot)){
+								/* no more outer-plan tuples available */
+								if (hasGroupingSets)
+								{
+									aggstate->input_done = true;
+								}
+								else
+								{
+									aggstate->agg_done = true;
+								}
+								bBreak = true;
+								break;
+							}
+							/* set up for next advance_aggregates call */
+							tmpcontext->ecxt_outertuple = outerslot;
+							/*
+							* If we are grouping, check whether we've crossed a group
+							* boundary.
+							*/
+							if (node->aggstrategy == AGG_SORTED)
+							{
+								if (!execTuplesMatch(firstSlot,
+													outerslot,
+													node->numCols,
+													node->grpColIdx,
+													aggstate->phase->eqfunctions,
+													tmpcontext->ecxt_per_tuple_memory))
+								{
+									aggstate->grp_firstTuple = ExecCopySlotMemTuple(outerslot);
+									bBreak = true;
+									break;
+								}
+							}
+						}
+						if(bBreak){
 							break;
 						}
-						else
+					}else{
+						outerslot = fetch_input_tuple(aggstate);
+						if (TupIsNull(outerslot))
 						{
-							aggstate->agg_done = true;
-							break;
+							/* no more outer-plan tuples available */
+							if (hasGroupingSets)
+							{
+								aggstate->input_done = true;
+								break;
+							}
+							else
+							{
+								aggstate->agg_done = true;
+								break;
+							}
 						}
-					}
-					/* set up for next advance_aggregates call */
-					tmpcontext->ecxt_outertuple = outerslot;
+						/* set up for next advance_aggregates call */
+						tmpcontext->ecxt_outertuple = outerslot;
 
-					/*
-					 * If we are grouping, check whether we've crossed a group
-					 * boundary.
-					 */
-					if (node->aggstrategy == AGG_SORTED)
-					{
-						if (!execTuplesMatch(firstSlot,
-											 outerslot,
-											 node->numCols,
-											 node->grpColIdx,
-											 aggstate->phase->eqfunctions,
-											 tmpcontext->ecxt_per_tuple_memory))
+						/*
+						* If we are grouping, check whether we've crossed a group
+						* boundary.
+						*/
+						if (node->aggstrategy == AGG_SORTED)
 						{
-							aggstate->grp_firstTuple = ExecCopySlotMemTuple(outerslot);
-							break;
+							if (!execTuplesMatch(firstSlot,
+												outerslot,
+												node->numCols,
+												node->grpColIdx,
+												aggstate->phase->eqfunctions,
+												tmpcontext->ecxt_per_tuple_memory))
+							{
+								aggstate->grp_firstTuple = ExecCopySlotMemTuple(outerslot);
+								break;
+							}
 						}
 					}
 				}

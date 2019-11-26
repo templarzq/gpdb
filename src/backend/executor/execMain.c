@@ -3069,105 +3069,190 @@ ExecutePlan(EState *estate,
 	/*
 	 * Loop until we've processed the proper number of tuples from the plan.
 	 */
-	for (;;)
-	{
-		/* Reset the per-output-tuple exprcontext */
-		ResetPerTupleExprContext(estate);
-
-		/*
-		 * Execute the plan and obtain a tuple
-		 */
-		slot = ExecProcNode(planstate);
-
-		/*
-		 * if the tuple is null, then we assume there is nothing more to
-		 * process so we just end the loop...
-		 */
-		if (TupIsNull(slot))
+	if (operation == CMD_SELECT){
+		TupleTableSlots resultSlots;
+		for (;;)
 		{
+			/* Reset the per-output-tuple exprcontext */
+			ResetPerTupleExprContext(estate);
+
 			/*
-			 * We got end-of-stream. We need to mark it since with a cursor
-			 * end-of-stream will only be received with the fetch that
-			 * returns the last tuple. ExecutorEnd needs to know if EOS was
-			 * received in order to do the right cleanup.
-			 */
-			estate->es_got_eos = true;
-			/* Allow nodes to release or shut down resources. */
-			(void) ExecShutdownNode(planstate);
-			break;
-		}
-
-		/*
-		 * If we have a junk filter, then project a new tuple with the junk
-		 * removed.
-		 *
-		 * Store this new "clean" tuple in the junkfilter's resultSlot.
-		 * (Formerly, we stored it back over the "dirty" tuple, which is WRONG
-		 * because that tuple slot has the wrong descriptor.)
-		 */
-		if (estate->es_junkFilter != NULL)
-			slot = ExecFilterJunk(estate->es_junkFilter, slot);
-
-		if (operation != CMD_SELECT && Gp_role == GP_ROLE_EXECUTE && !Gp_is_writer)
-		{
-			elog(ERROR, "INSERT/UPDATE/DELETE must be executed by a writer segworker group");
-		}
-
-		/*
-		 * If we are supposed to send the tuple somewhere, do so. (In
-		 * practice, this is probably always the case at this point.)
-		 */
-		if (sendTuples)
-		{
-			/*
-			 * If we are not able to send the tuple, we assume the destination
-			 * has closed and no more tuples can be sent. If that's the case,
-			 * end the loop.
-			 */
-			if (!((*dest->receiveSlot) (slot, dest)))
-				break;
-		}
-
-		/*
-		 * Count tuples processed, if this is a SELECT.  (For other operation
-		 * types, the ModifyTable plan node must count the appropriate
-		 * events.)
-		 */
-		if (operation == CMD_SELECT)
-		{
-			(estate->es_processed)++;
-
-#ifdef FAULT_INJECTOR
-			/*
-			 * bump es_processed using the fault injector, but only if the number rows is in a certain range
-			 * this avoids bumping the counter every time after we bumped it once
-			 */
-			if (estate->es_processed >= 10000 && estate->es_processed <= 1000000)
-			{
-				if (FaultInjector_InjectFaultIfSet("executor_run_high_processed",
-												   DDLNotSpecified,
-												   "" /* databaseName */,
-												   "" /* tableName */) == FaultInjectorTypeSkip)
+			* Execute the plan and obtain a tuple
+			*/
+			ExecProcNodeBatch(planstate,&resultSlots);
+			resultSlots.handledCnt = 0;
+			bool bBreak = false;
+			for(int i=0;i<resultSlots.slotNum;++i){
+				slot = resultSlots.slots[i];
+				/*
+				* if the tuple is null, then we assume there is nothing more to
+				* process so we just end the loop...
+				*/
+				if (TupIsNull(slot))
 				{
 					/*
-					 * For testing purposes, pretend that we have already processed
-					 * almost 2^32 rows.
-					 */
-					estate->es_processed = UINT_MAX - 10;
+					* We got end-of-stream. We need to mark it since with a cursor
+					* end-of-stream will only be received with the fetch that
+					* returns the last tuple. ExecutorEnd needs to know if EOS was
+					* received in order to do the right cleanup.
+					*/
+					estate->es_got_eos = true;
+					/* Allow nodes to release or shut down resources. */
+					(void) ExecShutdownNode(planstate);
+					bBreak = true;
+					break;
+				}
+
+				/*
+				* If we have a junk filter, then project a new tuple with the junk
+				* removed.
+				*
+				* Store this new "clean" tuple in the junkfilter's resultSlot.
+				* (Formerly, we stored it back over the "dirty" tuple, which is WRONG
+				* because that tuple slot has the wrong descriptor.)
+				*/
+				if (estate->es_junkFilter != NULL)
+					slot = ExecFilterJunk(estate->es_junkFilter, slot);
+
+				if (operation != CMD_SELECT && Gp_role == GP_ROLE_EXECUTE && !Gp_is_writer)
+				{
+					elog(ERROR, "INSERT/UPDATE/DELETE must be executed by a writer segworker group");
+				}
+
+				/*
+				* If we are supposed to send the tuple somewhere, do so. (In
+				* practice, this is probably always the case at this point.)
+				*/
+				if (sendTuples)
+				{
+					/*
+					* If we are not able to send the tuple, we assume the destination
+					* has closed and no more tuples can be sent. If that's the case,
+					* end the loop.
+					*/
+					if (!((*dest->receiveSlot) (slot, dest))){
+						bBreak = true;
+						break;
+					}
+						
+				}
+				/*
+				* Count tuples processed, if this is a SELECT.  (For other operation
+				* types, the ModifyTable plan node must count the appropriate
+				* events.)
+				*/
+
+				(estate->es_processed)++;
+
+		#ifdef FAULT_INJECTOR
+				/*
+				* bump es_processed using the fault injector, but only if the number rows is in a certain range
+				* this avoids bumping the counter every time after we bumped it once
+				*/
+				if (estate->es_processed >= 10000 && estate->es_processed <= 1000000)
+				{
+					if (FaultInjector_InjectFaultIfSet("executor_run_high_processed",
+													DDLNotSpecified,
+													"" /* databaseName */,
+													"" /* tableName */) == FaultInjectorTypeSkip)
+					{
+						/*
+						* For testing purposes, pretend that we have already processed
+						* almost 2^32 rows.
+						*/
+						estate->es_processed = UINT_MAX - 10;
+					}
+				}
+		#endif /* FAULT_INJECTOR */
+
+				/*
+				* check our tuple count.. if we've processed the proper number then
+				* quit, else loop again and process more tuples.  Zero numberTuples
+				* means no limit.
+				*/
+				current_tuple_count++;
+				if (numberTuples && numberTuples == current_tuple_count){
+					bBreak = true;
+					break;
 				}
 			}
-#endif /* FAULT_INJECTOR */
+			
+			if(bBreak){
+				break;
+			}
+			
 		}
 
-		/*
-		 * check our tuple count.. if we've processed the proper number then
-		 * quit, else loop again and process more tuples.  Zero numberTuples
-		 * means no limit.
-		 */
-		current_tuple_count++;
-		if (numberTuples && numberTuples == current_tuple_count)
-			break;
+	}else{
+		for (;;)
+		{
+			/* Reset the per-output-tuple exprcontext */
+			ResetPerTupleExprContext(estate);
+
+			/*
+			* Execute the plan and obtain a tuple
+			*/
+			slot = ExecProcNode(planstate);
+
+			/*
+			* if the tuple is null, then we assume there is nothing more to
+			* process so we just end the loop...
+			*/
+			if (TupIsNull(slot))
+			{
+				/*
+				* We got end-of-stream. We need to mark it since with a cursor
+				* end-of-stream will only be received with the fetch that
+				* returns the last tuple. ExecutorEnd needs to know if EOS was
+				* received in order to do the right cleanup.
+				*/
+				estate->es_got_eos = true;
+				/* Allow nodes to release or shut down resources. */
+				(void) ExecShutdownNode(planstate);
+				break;
+			}
+
+			/*
+			* If we have a junk filter, then project a new tuple with the junk
+			* removed.
+			*
+			* Store this new "clean" tuple in the junkfilter's resultSlot.
+			* (Formerly, we stored it back over the "dirty" tuple, which is WRONG
+			* because that tuple slot has the wrong descriptor.)
+			*/
+			if (estate->es_junkFilter != NULL)
+				slot = ExecFilterJunk(estate->es_junkFilter, slot);
+
+			if (operation != CMD_SELECT && Gp_role == GP_ROLE_EXECUTE && !Gp_is_writer)
+			{
+				elog(ERROR, "INSERT/UPDATE/DELETE must be executed by a writer segworker group");
+			}
+
+			/*
+			* If we are supposed to send the tuple somewhere, do so. (In
+			* practice, this is probably always the case at this point.)
+			*/
+			if (sendTuples)
+			{
+				/*
+				* If we are not able to send the tuple, we assume the destination
+				* has closed and no more tuples can be sent. If that's the case,
+				* end the loop.
+				*/
+				if (!((*dest->receiveSlot) (slot, dest)))
+					break;
+			}
+			/*
+			* check our tuple count.. if we've processed the proper number then
+			* quit, else loop again and process more tuples.  Zero numberTuples
+			* means no limit.
+			*/
+			current_tuple_count++;
+			if (numberTuples && numberTuples == current_tuple_count)
+				break;
+		}
 	}
+	
 
 	if (use_parallel_mode)
 		ExitParallelMode();

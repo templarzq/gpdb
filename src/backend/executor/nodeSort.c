@@ -179,15 +179,34 @@ ExecSort(SortState *node)
 		/*
 		 * Scan the subplan and feed all the tuples to tuplesort.
 		 */
+		TupleTableSlots resultSlots;
 
 		for (;;)
 		{
-			slot = ExecProcNode(outerNode);
+			
+			if(outerNode->type == T_SeqScan){
+				ExecProcNodeBatch(outerNode,&resultSlots);
+				bool bBreak = false;
+				for(int i=0;i<resultSlots.slotNum;++i){
+					slot = resultSlots.slots[i];
+					if (TupIsNull(slot)){
+						bBreak = true;
+						break;
+					}
+					tuplesort_puttupleslot(tuplesortstate, slot);
+				}
+				if(bBreak){
+					break;
+				}
+			}else{
+				slot = ExecProcNode(outerNode);
 
-			if (TupIsNull(slot))
-				break;
+				if (TupIsNull(slot))
+					break;
 
-			tuplesort_puttupleslot(tuplesortstate, slot);
+				tuplesort_puttupleslot(tuplesortstate, slot);
+			}
+
 		}
 
 		SIMPLE_FAULT_INJECTOR("execsort_before_sorting");

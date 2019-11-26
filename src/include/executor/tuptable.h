@@ -151,6 +151,13 @@ typedef struct TupleTableSlot
     Oid         tts_tableOid;
 } TupleTableSlot;
 
+typedef struct TupleTableSlots
+{
+	TupleTableSlot* slots[4096];	//当前批次的slot数量
+	int  slotNum;				//已经取到的slot数量
+	int  handledCnt;			//已处理的数量
+} TupleTableSlots;
+
 #ifndef FRONTEND
 
 static inline bool TupIsNull(TupleTableSlot *slot)
