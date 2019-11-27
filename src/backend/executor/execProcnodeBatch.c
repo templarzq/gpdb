@@ -447,7 +447,7 @@ void ExecProcNodeBatch(PlanState *node,TupleTableSlots *resultSlots)
 				break;
 		}
 
-		if(nodeTag(node)!=T_SeqScanState&&result!=NULL){
+		if(nodeTag(node)!=T_SeqScanState){
 			resultSlots->slots[0] = result;
 			resultSlots->slotNum = 1;
 		}

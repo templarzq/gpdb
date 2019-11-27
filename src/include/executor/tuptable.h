@@ -154,8 +154,9 @@ typedef struct TupleTableSlot
 typedef struct TupleTableSlots
 {
 	TupleTableSlot* slots[4096];	//当前批次的slot数量
-	int  slotNum;				//已经取到的slot数量
-	int  handledCnt;			//已处理的数量
+	int  slotNum;					//已经取到的slot数量
+	int  handledCnt;				//已处理的数量
+	HeapTupleData htups[4096];		//heapTuple
 } TupleTableSlots;
 
 #ifndef FRONTEND

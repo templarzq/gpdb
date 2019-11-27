@@ -115,6 +115,7 @@
 #include "cdb/cdbtargeteddispatch.h"
 #include "cdb/cdbutil.h"
 
+#include <unistd.h>
 
 /* Hooks for plugins to get control in ExecutorStart/Run/Finish/End */
 ExecutorStart_hook_type ExecutorStart_hook = NULL;
@@ -3069,20 +3070,30 @@ ExecutePlan(EState *estate,
 	/*
 	 * Loop until we've processed the proper number of tuples from the plan.
 	 */
+	// bool bWait = true;
+	// while(bWait){
+	// 	sleep(1);
+	// };
+	//if (false){
 	if (operation == CMD_SELECT){
 		TupleTableSlots resultSlots;
+		resultSlots.handledCnt = 0;
+		resultSlots.slotNum = 0;
 		for (;;)
 		{
-			/* Reset the per-output-tuple exprcontext */
-			ResetPerTupleExprContext(estate);
 
 			/*
 			* Execute the plan and obtain a tuple
 			*/
-			ExecProcNodeBatch(planstate,&resultSlots);
-			resultSlots.handledCnt = 0;
+			if(resultSlots.handledCnt>=resultSlots.slotNum){
+				/* Reset the per-output-tuple exprcontext */
+				ResetPerTupleExprContext(estate);
+				ExecProcNodeBatch(planstate,&resultSlots);
+				resultSlots.handledCnt = 0;
+			}
+			
 			bool bBreak = false;
-			for(int i=0;i<resultSlots.slotNum;++i){
+			for(int i=resultSlots.handledCnt;i<resultSlots.slotNum;++i){
 				slot = resultSlots.slots[i];
 				/*
 				* if the tuple is null, then we assume there is nothing more to
@@ -3143,7 +3154,7 @@ ExecutePlan(EState *estate,
 				*/
 
 				(estate->es_processed)++;
-
+				resultSlots.handledCnt ++;
 		#ifdef FAULT_INJECTOR
 				/*
 				* bump es_processed using the fault injector, but only if the number rows is in a certain range
