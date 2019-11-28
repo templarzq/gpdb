@@ -3081,7 +3081,6 @@ ExecutePlan(EState *estate,
 		resultSlots.slotNum = 0;
 		for (;;)
 		{
-
 			/*
 			* Execute the plan and obtain a tuple
 			*/
@@ -3189,6 +3188,15 @@ ExecutePlan(EState *estate,
 			}
 			
 			if(bBreak){
+				int size = sizeof(resultSlots.slots)/sizeof(TupleTableSlot*);
+				/*scan类slot由scan node 管理，此处只处理filter、projection的virtual slots*/
+				for(int i=0;i<size;++i){
+					if(resultSlots.slots[i]!=NULL){
+						if(resultSlots.slots[i]->PRIVATE_tts_flags == TTS_VIRTUAL){
+							ExecClearTuple(resultSlots.slots[i]);
+						}
+					}
+				}
 				break;
 			}
 			

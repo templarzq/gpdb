@@ -64,7 +64,8 @@ InitAOCSScanOpaque(SeqScanState *scanstate, Relation currentRelation);
 static inline 
 void ExecScanFetchBatch(ScanState *node,
 			  ExecScanAccessMtd accessMtd,
-			  ExecScanRecheckMtd recheckMtd)
+			  ExecScanRecheckMtd recheckMtd
+			  )
 {
 	EState	   *estate = node->ps.state;
 
@@ -141,7 +142,7 @@ void
 ExecSeqScanBatch(ScanState *node,
 		 ExecScanAccessMtd accessMtd,	/* function returning a tuple */
 		 ExecScanRecheckMtd recheckMtd,
-		 TupleTableSlots *resultSlots )
+		 TupleTableSlots *resultSlots)
 {
 	ExprContext *econtext;
 	List	   *qual;
@@ -169,6 +170,7 @@ ExecSeqScanBatch(ScanState *node,
 	 */
 	if (!qual && !projInfo)
 	{
+		TupleTableSlot *slot;
 		ExecScanFetchBatch(node, accessMtd, recheckMtd);
 		*resultSlots = node->ss_resultSlots;
 		return;
@@ -261,7 +263,6 @@ ExecSeqScanBatch(ScanState *node,
 						memcpy(newslotvalues, slotvalues, sizeof(Datum) * nv);
 						memcpy(newslotnulls, slotnulls, sizeof(bool) * nv);
 						TupSetVirtualTupleNValid(newSlot, nv);
-						TupSetVirtualTuple(newSlot);
 						newSlot->tts_tupleDescriptor = slot->tts_tupleDescriptor;
 					}
 					resultSlots->slots[resultRows] = newSlot;
