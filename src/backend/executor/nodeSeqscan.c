@@ -317,7 +317,7 @@ ExecEndSeqScan(SeqScanState *node)
 
 	int size = sizeof(node->ss.ss_resultSlots.slots)/sizeof(TupleTableSlot*);
 	for(int i=0;i<size;++i){
-		if(node->ss.ss_resultSlots.slots[i]!=NULL){
+		if(!TupIsNull(node->ss.ss_resultSlots.slots[i])){
 			ExecClearTuple(node->ss.ss_resultSlots.slots[i]);
 		}
 	}
