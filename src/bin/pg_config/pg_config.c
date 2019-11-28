@@ -180,9 +180,26 @@ main(int argc, char **argv)
 			fprintf(stderr, _("%s: invalid argument: %s\n"),
 					progname, argv[i]);
 			advice();
+			for(int i=0;i<23;++i){
+				if(configdata[i].name!=NULL){
+					free(configdata[i].name);
+				}
+				if(configdata[i].setting!=NULL){
+					free(configdata[i].setting);
+				}
+			}
+			free(configdata);
 			exit(1);
 		}
 	}
-
+	for(int i=0;i<23;++i){
+		if(configdata[i].name!=NULL){
+			free(configdata[i].name);
+		}
+		if(configdata[i].setting!=NULL){
+			free(configdata[i].setting);
+		}
+	}
+	free(configdata);
 	return 0;
 }

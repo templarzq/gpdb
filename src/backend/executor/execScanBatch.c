@@ -197,8 +197,9 @@ ExecSeqScanBatch(ScanState *node,
 		TupleTableSlot *slot;
 
 		//上个批次处理完毕
-		if(node->ss_resultSlots.handledCnt == node->ss_resultSlots.slotNum){
+		if(node->ss_resultSlots.handledCnt >= node->ss_resultSlots.slotNum){
 			ResetExprContext(econtext);
+			node->ss_resultSlots.slotNum = 0;
 			ExecScanFetchBatch(node, accessMtd, recheckMtd);
 			node->ss_resultSlots.handledCnt = 0;
 		}
@@ -252,8 +253,15 @@ ExecSeqScanBatch(ScanState *node,
 					TupleTableSlot* newSlot;
 					HeapTuple	tuple;
 					slot = ExecProject(projInfo, NULL);
-					newSlot = ExecInitExtraTupleSlot(((SeqScanState*)node)->ss.ps.state);
-					ExecSetSlotDescriptor(newSlot, ((SeqScanState*)node)->ss.ss_ScanTupleSlot->tts_tupleDescriptor);
+					if(TupIsNull(resultSlots->slots[resultRows]))
+					{
+						newSlot = ExecInitExtraTupleSlot(((SeqScanState*)node)->ss.ps.state);
+						ExecSetSlotDescriptor(newSlot, ((SeqScanState*)node)->ss.ss_ScanTupleSlot->tts_tupleDescriptor);
+					}
+					else{
+						newSlot = resultSlots->slots[resultRows];
+					}
+
 					{
 						Datum *slotvalues = slot_get_values(slot);
 						bool  *slotnulls = slot_get_isnull(slot);

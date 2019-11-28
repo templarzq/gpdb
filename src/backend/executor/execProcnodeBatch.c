@@ -450,16 +450,25 @@ void ExecProcNodeBatch(PlanState *node,TupleTableSlots *resultSlots)
 		if(nodeTag(node)!=T_SeqScanState){
 			resultSlots->slots[0] = result;
 			resultSlots->slotNum = 1;
-		}
-
-		if (!TupIsNull(result))
-		{
-			Gpmon_Incr_Rows_Out(&node->gpmon_pkt);
+			if (!TupIsNull(result))
+			{
+				Gpmon_Incr_Rows_Out(&node->gpmon_pkt);
+				CheckSendPlanStateGpmonPkt(node);
+			}
+			if (node->instrument)
+				InstrStopNode(node->instrument, TupIsNull(result) ? 0 : 1);
+		}else{
+			for(int i=0;i<resultSlots->slotNum;++i){
+				result = resultSlots->slots[i];
+				if (!TupIsNull(result))
+				{
+					Gpmon_Incr_Rows_Out(&node->gpmon_pkt);
+				}
+				if (node->instrument)
+					InstrStopNode(node->instrument, TupIsNull(result) ? 0 : 1);
+			}
 			CheckSendPlanStateGpmonPkt(node);
 		}
-
-		if (node->instrument)
-			InstrStopNode(node->instrument, TupIsNull(result) ? 0 : 1);
 
 		if (node->plan)
 			TRACE_POSTGRESQL_EXECPROCNODE_EXIT(GpIdentity.segindex, currentSliceId, nodeTag(node), node->plan->plan_node_id);
