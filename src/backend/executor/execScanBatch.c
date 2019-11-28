@@ -253,7 +253,7 @@ ExecSeqScanBatch(ScanState *node,
 					TupleTableSlot* newSlot,*piSlot;
 					HeapTuple	tuple;
 					piSlot = projInfo->pi_slot;
-
+					//使用result slot中的 tupletableslot
 					if(TupIsNull(resultSlots->slots[resultRows]))
 					{
 						newSlot = ExecInitExtraTupleSlot(((SeqScanState*)node)->ss.ps.state);
@@ -266,19 +266,9 @@ ExecSeqScanBatch(ScanState *node,
 					projInfo->pi_slot = newSlot;
 
 					newSlot = ExecProject(projInfo, NULL);
-
+					//使用完毕，交换slot
 					projInfo->pi_slot = piSlot;
-					// {
-					// 	Datum *slotvalues = slot_get_values(slot);
-					// 	bool  *slotnulls = slot_get_isnull(slot);
-					// 	Datum *newslotvalues = slot_get_values(newSlot);
-					// 	bool *newslotnulls = slot_get_isnull(newSlot);
-					// 	int nv = slot->PRIVATE_tts_nvalid;
-					// 	memcpy(newslotvalues, slotvalues, sizeof(Datum) * nv);
-					// 	memcpy(newslotnulls, slotnulls, sizeof(bool) * nv);
-					// 	TupSetVirtualTupleNValid(newSlot, nv);
-					// 	newSlot->tts_tupleDescriptor = slot->tts_tupleDescriptor;
-					// }
+
 					resultSlots->slots[resultRows] = newSlot;
 					resultSlots->slotNum += 1;
 					node->ss_resultSlots.handledCnt ++;
