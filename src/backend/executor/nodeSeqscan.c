@@ -284,7 +284,7 @@ ExecInitSeqScanForPartition(SeqScan *node, EState *estate, int eflags,
 	 */
 	ExecAssignResultTypeFromTL(&scanstate->ss.ps);
 	ExecAssignScanProjectionInfo(&scanstate->ss);
-
+	memset(scanstate->ss.ss_resultSlots.slots,0,sizeof(scanstate->ss.ss_resultSlots.slots));
 	return scanstate;
 }
 

@@ -250,29 +250,35 @@ ExecSeqScanBatch(ScanState *node,
 					* Form a projection tuple, store it in the result tuple slot
 					* and return it.
 					*/
-					TupleTableSlot* newSlot;
+					TupleTableSlot* newSlot,*piSlot;
 					HeapTuple	tuple;
-					slot = ExecProject(projInfo, NULL);
+					piSlot = projInfo->pi_slot;
+
 					if(TupIsNull(resultSlots->slots[resultRows]))
 					{
 						newSlot = ExecInitExtraTupleSlot(((SeqScanState*)node)->ss.ps.state);
-						ExecSetSlotDescriptor(newSlot, ((SeqScanState*)node)->ss.ss_ScanTupleSlot->tts_tupleDescriptor);
+						ExecSetSlotDescriptor(newSlot, piSlot->tts_tupleDescriptor);
 					}
 					else{
 						newSlot = resultSlots->slots[resultRows];
 					}
+					
+					projInfo->pi_slot = newSlot;
 
-					{
-						Datum *slotvalues = slot_get_values(slot);
-						bool  *slotnulls = slot_get_isnull(slot);
-						Datum *newslotvalues = slot_get_values(newSlot);
-						bool *newslotnulls = slot_get_isnull(newSlot);
-						int nv = slot->PRIVATE_tts_nvalid;
-						memcpy(newslotvalues, slotvalues, sizeof(Datum) * nv);
-						memcpy(newslotnulls, slotnulls, sizeof(bool) * nv);
-						TupSetVirtualTupleNValid(newSlot, nv);
-						newSlot->tts_tupleDescriptor = slot->tts_tupleDescriptor;
-					}
+					newSlot = ExecProject(projInfo, NULL);
+
+					projInfo->pi_slot = piSlot;
+					// {
+					// 	Datum *slotvalues = slot_get_values(slot);
+					// 	bool  *slotnulls = slot_get_isnull(slot);
+					// 	Datum *newslotvalues = slot_get_values(newSlot);
+					// 	bool *newslotnulls = slot_get_isnull(newSlot);
+					// 	int nv = slot->PRIVATE_tts_nvalid;
+					// 	memcpy(newslotvalues, slotvalues, sizeof(Datum) * nv);
+					// 	memcpy(newslotnulls, slotnulls, sizeof(bool) * nv);
+					// 	TupSetVirtualTupleNValid(newSlot, nv);
+					// 	newSlot->tts_tupleDescriptor = slot->tts_tupleDescriptor;
+					// }
 					resultSlots->slots[resultRows] = newSlot;
 					resultSlots->slotNum += 1;
 					node->ss_resultSlots.handledCnt ++;
