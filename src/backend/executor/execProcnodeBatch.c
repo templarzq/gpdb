@@ -374,7 +374,8 @@ void ExecProcNodeBatch(PlanState *node,TupleTableSlots *resultSlots)
 				break;
 
 			case T_SortState:
-				result = ExecSort((SortState *) node);
+				//result = ExecSort((SortState *) node);
+				ExecSortBatch((SortState *) node,resultSlots);
 				break;
 
 			case T_AggState:
@@ -447,17 +448,7 @@ void ExecProcNodeBatch(PlanState *node,TupleTableSlots *resultSlots)
 				break;
 		}
 
-		if(nodeTag(node)!=T_SeqScanState){
-			resultSlots->slots[0] = result;
-			resultSlots->slotNum = 1;
-			if (!TupIsNull(result))
-			{
-				Gpmon_Incr_Rows_Out(&node->gpmon_pkt);
-				CheckSendPlanStateGpmonPkt(node);
-			}
-			if (node->instrument)
-				InstrStopNode(node->instrument, TupIsNull(result) ? 0 : 1);
-		}else{
+		if(nodeTag(node) == T_SeqScanState || nodeTag(node)==T_SortState){
 			for(int i=0;i<resultSlots->slotNum;++i){
 				result = resultSlots->slots[i];
 				if (!TupIsNull(result))
@@ -468,8 +459,17 @@ void ExecProcNodeBatch(PlanState *node,TupleTableSlots *resultSlots)
 					InstrStopNode(node->instrument, TupIsNull(result) ? 0 : 1);
 			}
 			CheckSendPlanStateGpmonPkt(node);
+		}else{
+			resultSlots->slots[0] = result;
+			resultSlots->slotNum = 1;
+			if (!TupIsNull(result))
+			{
+				Gpmon_Incr_Rows_Out(&node->gpmon_pkt);
+				CheckSendPlanStateGpmonPkt(node);
+			}
+			if (node->instrument)
+				InstrStopNode(node->instrument, TupIsNull(result) ? 0 : 1);
 		}
-
 		if (node->plan)
 			TRACE_POSTGRESQL_EXECPROCNODE_EXIT(GpIdentity.segindex, currentSliceId, nodeTag(node), node->plan->plan_node_id);
 	}

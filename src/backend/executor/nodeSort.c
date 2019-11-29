@@ -274,6 +274,250 @@ ExecSort(SortState *node)
 	return slot;
 }
 
+
+void ExecSortBatch(SortState *node,TupleTableSlots* resultSlots)
+{
+	EState	   *estate;
+	ScanDirection dir;
+	Tuplesortstate *tuplesortstate;
+	TupleTableSlot *slot = NULL;
+	Sort 		*plannode = NULL;
+	PlanState  *outerNode = NULL;
+	TupleDesc	tupDesc = NULL;
+	int batchSize = 0;
+	/*
+	 * get state info from node
+	 */
+	SO1_printf("ExecSort: %s\n",
+			   "entering routine");
+
+	estate = node->ss.ps.state;
+	dir = estate->es_direction;
+	tuplesortstate = node->tuplesortstate->sortstore;
+
+	/*
+	 * In Window node, we might need to call ExecSort again even when
+	 * the last tuple in the Sort has been retrieved. Since we might
+	 * eager free the tuplestore, the tuplestorestate could be NULL.
+	 * We simply return NULL in this case.
+	 */
+	if (node->sort_Done && tuplesortstate == NULL)
+	{
+		return NULL;
+	}
+
+	plannode = (Sort *) node->ss.ps.plan;
+
+
+	/*
+	 * If called for the first time, initialize tuplesort_state
+	 */
+
+	if (!node->sort_Done)
+	{
+		SO1_printf("ExecSort: %s\n",
+				   "sorting subplan");
+
+		/*
+		 * Want to scan subplan in the forward direction while creating the
+		 * sorted data.
+		 */
+		estate->es_direction = ForwardScanDirection;
+
+		/*
+		 * Initialize tuplesort module.
+		 */
+		SO1_printf("ExecSort: %s\n",
+				   "calling tuplesort_begin");
+
+		outerNode = outerPlanState(node);
+		tupDesc = ExecGetResultType(outerNode);
+
+		if(plannode->share_type == SHARE_SORT_XSLICE)
+		{
+			char rwfile_prefix[100];
+			if(plannode->driver_slice != currentSliceId)
+			{
+				elog(LOG, "Sort exec on CrossSlice, current slice %d", currentSliceId);
+				return NULL;
+			}
+
+			shareinput_create_bufname_prefix(rwfile_prefix, sizeof(rwfile_prefix), plannode->share_id);
+			elog(LOG, "Sort node create shareinput rwfile %s", rwfile_prefix);
+
+			tuplesortstate = tuplesort_begin_heap_file_readerwriter(
+				&node->ss,
+				rwfile_prefix, true,
+				tupDesc,
+				plannode->numCols,
+				plannode->sortColIdx,
+				plannode->sortOperators,
+				plannode->collations,
+				plannode->nullsFirst,
+				PlanStateOperatorMemKB((PlanState *) node),
+				true
+				);
+		}
+		else
+		{
+			tuplesortstate = tuplesort_begin_heap(&node->ss, tupDesc,
+												  plannode->numCols,
+												  plannode->sortColIdx,
+												  plannode->sortOperators,
+												  plannode->collations,
+												  plannode->nullsFirst,
+												  PlanStateOperatorMemKB((PlanState *) node),
+												  node->randomAccess);
+		}
+
+		if (node->bounded)
+			tuplesort_set_bound(tuplesortstate, node->bound);
+		node->tuplesortstate->sortstore = tuplesortstate;
+
+		/* CDB */
+		{
+			int 		unique = 0;
+			int 		sort_flags = gp_sort_flags; /* get the guc */
+			int         maxdistinct = gp_sort_max_distinct; /* get the guc */
+
+			if (node->noduplicates)
+				unique = 1;
+			
+			cdb_tuplesort_init(tuplesortstate, unique, sort_flags, maxdistinct);
+		}
+
+		/* If EXPLAIN ANALYZE, share our Instrumentation object with sort. */
+		if (node->ss.ps.instrument && node->ss.ps.instrument->need_cdb)
+			tuplesort_set_instrument(tuplesortstate,
+									 node->ss.ps.instrument,
+									 node->ss.ps.cdbexplainbuf);
+
+		tuplesort_set_gpmon(tuplesortstate, &node->ss.ps.gpmon_pkt,
+							&node->ss.ps.gpmon_plan_tick);
+	}
+
+	/*
+	 * If first time through,
+	 * read all tuples from outer plan and pass them to
+	 * tuplesort.c. Subsequent calls just fetch tuples from tuplesort.
+	 */
+	if (!node->sort_Done)
+	{
+
+		Assert(outerNode != NULL);
+
+		/*
+		 * Scan the subplan and feed all the tuples to tuplesort.
+		 */
+		TupleTableSlots resultSlots;
+
+		for (;;)
+		{
+			
+			if(outerNode->type == T_SeqScan){
+				ExecProcNodeBatch(outerNode,&resultSlots);
+				bool bBreak = false;
+				for(int i=0;i<resultSlots.slotNum;++i){
+					slot = resultSlots.slots[i];
+					if (TupIsNull(slot)){
+						bBreak = true;
+						break;
+					}
+					tuplesort_puttupleslot(tuplesortstate, slot);
+				}
+				if(bBreak){
+					break;
+				}
+			}else{
+				slot = ExecProcNode(outerNode);
+
+				if (TupIsNull(slot))
+					break;
+
+				tuplesort_puttupleslot(tuplesortstate, slot);
+			}
+
+		}
+
+		SIMPLE_FAULT_INJECTOR("execsort_before_sorting");
+
+		/*
+		 * Complete the sort.
+		 */
+		tuplesort_performsort(tuplesortstate);
+
+		CheckSendPlanStateGpmonPkt(&node->ss.ps);
+		/*
+		 * restore to user specified direction
+		 */
+		estate->es_direction = dir;
+
+		/*
+		 * finally set the sorted flag to true
+		 */
+		node->sort_Done = true;
+		node->bounded_Done = node->bounded;
+		node->bound_Done = node->bound;
+		SO1_printf("ExecSort: %s\n", "sorting done");
+
+		/* for share input, do not need to return any tuple */
+		if(plannode->share_type != SHARE_NOTSHARED) 
+		{
+			Assert(plannode->share_type == SHARE_SORT || plannode->share_type == SHARE_SORT_XSLICE);
+
+			if(plannode->share_type == SHARE_SORT_XSLICE)
+			{
+				if(plannode->driver_slice == currentSliceId)
+				{
+					tuplesort_flush(tuplesortstate);
+
+					node->share_lk_ctxt = shareinput_writer_notifyready(plannode->share_id, plannode->nsharer_xslice,
+							estate->es_plannedstmt->planGen);
+				}
+			}
+
+			return NULL;
+		}
+
+	} /* if (!node->sort_Done) */
+
+	if(plannode->share_type != SHARE_NOTSHARED)
+		return NULL;
+				
+	SO1_printf("ExecSort: %s\n",
+			   "retrieving tuple from tuplesort");
+
+	/*
+	 * Get the first or next tuple from tuplesort. Returns NULL if no more
+	 * tuples.
+	 */
+	batchSize = sizeof(resultSlots->slots)/sizeof(TupleTableSlot*);
+	resultSlots->slotNum = 0;
+	
+	for(int i=0;i<batchSize;++i){
+		slot = resultSlots->slots[i];
+		if(slot != NULL){
+			slot = ExecClearTuple(slot);
+		}else{
+			slot = ExecInitExtraTupleSlot(estate);
+			ExecSetSlotDescriptor(slot, node->ss.ps.ps_ResultTupleSlot->tts_tupleDescriptor);
+		}
+		(void) tuplesort_gettupleslot(tuplesortstate,
+							ScanDirectionIsForward(dir),
+							slot, NULL);
+
+		resultSlots->slots[i] = slot;
+		resultSlots->slotNum += 1;
+		if (TupIsNull(slot) && !node->delayEagerFree)
+		{
+			ExecEagerFreeSort(node);
+			return ;
+		}
+	}
+
+	return;
+}
+
 /* ----------------------------------------------------------------
  *		ExecInitSort
  *

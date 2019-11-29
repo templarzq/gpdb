@@ -18,6 +18,8 @@
 
 extern SortState *ExecInitSort(Sort *node, EState *estate, int eflags);
 extern struct TupleTableSlot *ExecSort(SortState *node);
+extern void ExecSortBatch(SortState *node,TupleTableSlots* resultSlots);
+
 extern void ExecEndSort(SortState *node);
 extern void ExecSortMarkPos(SortState *node);
 extern void ExecSortRestrPos(SortState *node);

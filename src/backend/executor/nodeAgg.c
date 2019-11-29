@@ -2022,7 +2022,9 @@ agg_retrieve_direct(AggState *aggstate)
 					/* Reset per-input-tuple context after each tuple */
 					ResetExprContext(tmpcontext);
 
-					if(outerPlanState(aggstate)->type == T_SeqScan){
+					if(outerPlanState(aggstate)->type == T_SeqScan ||
+						outerPlanState(aggstate)->type == T_SortState
+					){
 						bool bBreak = false;
 						ExecProcNodeBatch(outerPlanState(aggstate),&resultSlots);
 						for(int i=0;i<resultSlots.slotNum;++i){
