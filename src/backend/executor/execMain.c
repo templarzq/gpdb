@@ -3077,17 +3077,17 @@ ExecutePlan(EState *estate,
 	//if (false){
 	if (operation == CMD_SELECT){
 		TupleTableSlots resultSlots;
-		memset(resultSlots.slots,0,sizeof(resultSlots.slots));
 		resultSlots.handledCnt = 0;
 		resultSlots.slotNum = 0;
+		/* Reset the per-output-tuple exprcontext */
+		ResetPerTupleExprContext(estate);
+		memset(resultSlots.slots,0,sizeof(resultSlots.slots));
 		for (;;)
 		{
 			/*
 			* Execute the plan and obtain a tuple
 			*/
 			if(resultSlots.handledCnt>=resultSlots.slotNum){
-				/* Reset the per-output-tuple exprcontext */
-				ResetPerTupleExprContext(estate);
 				resultSlots.slotNum = 0;
 				ExecProcNodeBatch(planstate,&resultSlots);
 				resultSlots.handledCnt = 0;

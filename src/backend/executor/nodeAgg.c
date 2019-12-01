@@ -2013,7 +2013,9 @@ agg_retrieve_direct(AggState *aggstate)
 				TupleTableSlots resultSlots;
 				memset(resultSlots.slots,0,sizeof(resultSlots.slots));
 				resultSlots.handledCnt = 0;
-				
+				/* Reset per-input-tuple context after each tuple */
+				ResetExprContext(tmpcontext);
+
 				for (;;)
 				{
 					if (DO_AGGSPLIT_COMBINE(aggstate->aggsplit))
@@ -2021,13 +2023,11 @@ agg_retrieve_direct(AggState *aggstate)
 					else
 						advance_aggregates(aggstate, pergroup);
 
-					/* Reset per-input-tuple context after each tuple */
-					ResetExprContext(tmpcontext);
-
-					if(outerPlanState(aggstate)->type == T_SeqScan ||
+					if(outerPlanState(aggstate)->type == T_SeqScanState ||
 						outerPlanState(aggstate)->type == T_SortState
 					){
 						bool bBreak = false;
+						memset(resultSlots.slots,0,sizeof(resultSlots.slots));
 						resultSlots.slotNum = 0;
 						ExecProcNodeBatch(outerPlanState(aggstate),&resultSlots);
 						for(int i=0;i<resultSlots.slotNum;++i){
@@ -2070,6 +2070,8 @@ agg_retrieve_direct(AggState *aggstate)
 							break;
 						}
 					}else{
+						/* Reset per-input-tuple context after each tuple */
+						ResetExprContext(tmpcontext);
 						outerslot = fetch_input_tuple(aggstate);
 						if (TupIsNull(outerslot))
 						{

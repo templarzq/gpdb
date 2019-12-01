@@ -184,7 +184,7 @@ ExecSort(SortState *node)
 		resultSlots.handledCnt = 0;
 		for (;;)
 		{
-			if(outerNode->type == T_SeqScan){
+			if(outerNode->type == T_SeqScanState){
 				resultSlots.slotNum = 0;
 				ExecProcNodeBatch(outerNode,&resultSlots);
 				bool bBreak = false;
