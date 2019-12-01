@@ -3077,11 +3077,13 @@ ExecutePlan(EState *estate,
 	//if (false){
 	if (operation == CMD_SELECT){
 		TupleTableSlots resultSlots;
+		memset(resultSlots.slots,0,sizeof(resultSlots.slots));
 		resultSlots.handledCnt = 0;
 		resultSlots.slotNum = 0;
+
 		/* Reset the per-output-tuple exprcontext */
 		ResetPerTupleExprContext(estate);
-		memset(resultSlots.slots,0,sizeof(resultSlots.slots));
+
 		for (;;)
 		{
 			/*

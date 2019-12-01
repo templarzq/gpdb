@@ -927,6 +927,11 @@ agg_hash_initial_pass(AggState *aggstate)
 		outerslot = fetch_input_tuple(aggstate);
 	}
 
+	TupleTableSlots resultSlots;
+	memset(resultSlots.slots,0,sizeof(resultSlots.slots));
+	resultSlots.handledCnt = 0;
+	resultSlots.slots[0] = outerslot;
+	resultSlots.slotNum = 1;
 	/*
 	 * Process outer-plan tuples, until we exhaust the outer plan.
 	 */
@@ -935,102 +940,111 @@ agg_hash_initial_pass(AggState *aggstate)
 		HashKey hashkey;
 		bool isNew;
 		HashAggEntry *entry;
-
-		/* no more tuple. Done */
-		if (TupIsNull(outerslot))
-		{
-			tuple_remaining = false;
-			break;
-		}
-
-		if (aggstate->hashslot->tts_tupleDescriptor == NULL)
-		{
-			int size;
-							
-			/* Initialize hashslot by cloning input slot. */
-			ExecSetSlotDescriptor(aggstate->hashslot, outerslot->tts_tupleDescriptor); 
-			ExecStoreAllNullTuple(aggstate->hashslot);
-
-			size = ((Agg *)aggstate->ss.ps.plan)->numCols * sizeof(HashKey);
-			
-			hashtable->hashkey_buf = (HashKey *)palloc0(size);
-			hashtable->mem_for_metadata += size;
-		}
-
-		/* set up for advance_aggregates call */
-		tmpcontext->ecxt_outertuple = outerslot;
-
-		/* Find or (if there's room) build a hash table entry for the
-		 * input tuple's group. */
-		hashkey = calc_hash_value(aggstate, outerslot);
-		entry = lookup_agg_hash_entry(aggstate, (void *)outerslot,
-									  INPUT_RECORD_TUPLE, 0, hashkey, &isNew);
-		
-		if (entry == NULL)
-		{
-			if (GET_TOTAL_USED_SIZE(hashtable) > hashtable->mem_used)
-				hashtable->mem_used = GET_TOTAL_USED_SIZE(hashtable);
-
-			if (hashtable->num_ht_groups <= 1)
-				ereport(ERROR,
-						(errcode(ERRCODE_INTERNAL_ERROR),
-								 ERRMSG_GP_INSUFFICIENT_STATEMENT_MEMORY));
-			
-			/*
-			 * If stream_bottom is on, we store outerslot into hashslot, so that
-			 * we can process it later.
-			 */
-			if (streaming)
+		bool bBreak =false;
+		for(int i=0;i<resultSlots.slotNum;++i){
+			outerslot = resultSlots.slots[i];
+			/* no more tuple. Done */
+			if (TupIsNull(outerslot))
 			{
-				Assert(tuple_remaining);
-				hashtable->prev_slot = outerslot;
-				/* Stream existing entries instead of spilling */
+				tuple_remaining = false;
+				bBreak = true;
 				break;
 			}
 
-			if (!hashtable->is_spilling && aggstate->ss.ps.instrument && aggstate->ss.ps.instrument->need_cdb)
+			if (aggstate->hashslot->tts_tupleDescriptor == NULL)
 			{
-				/* Update in-memory hash table statistics before spilling. */
-				agg_hash_table_stat_upd(hashtable);
+				int size;
+								
+				/* Initialize hashslot by cloning input slot. */
+				ExecSetSlotDescriptor(aggstate->hashslot, outerslot->tts_tupleDescriptor); 
+				ExecStoreAllNullTuple(aggstate->hashslot);
+
+				size = ((Agg *)aggstate->ss.ps.plan)->numCols * sizeof(HashKey);
+				
+				hashtable->hashkey_buf = (HashKey *)palloc0(size);
+				hashtable->mem_for_metadata += size;
 			}
 
-			spill_hash_table(aggstate);
+			/* set up for advance_aggregates call */
+			tmpcontext->ecxt_outertuple = outerslot;
 
+			/* Find or (if there's room) build a hash table entry for the
+			* input tuple's group. */
+			hashkey = calc_hash_value(aggstate, outerslot);
 			entry = lookup_agg_hash_entry(aggstate, (void *)outerslot,
-										  INPUT_RECORD_TUPLE, 0, hashkey, &isNew);
-		}
-
-		setGroupAggs(hashtable, entry);
-		
-		if (isNew)
-		{
-			int tup_len = memtuple_get_size((MemTuple)entry->tuple_and_aggs);
-			MemSet((char *)entry->tuple_and_aggs + MAXALIGN(tup_len), 0,
-				   aggstate->numaggs * sizeof(AggStatePerGroupData));
-			initialize_aggregates(aggstate, hashtable->groupaggs->aggs, 0);
-		}
+										INPUT_RECORD_TUPLE, 0, hashkey, &isNew);
 			
-		/* Advance the aggregates */
-		if (DO_AGGSPLIT_COMBINE(aggstate->aggsplit))
-			combine_aggregates(aggstate, hashtable->groupaggs->aggs);
-		else
-			advance_aggregates(aggstate, hashtable->groupaggs->aggs);
+			if (entry == NULL)
+			{
+				if (GET_TOTAL_USED_SIZE(hashtable) > hashtable->mem_used)
+					hashtable->mem_used = GET_TOTAL_USED_SIZE(hashtable);
 
-		hashtable->num_tuples++;
+				if (hashtable->num_ht_groups <= 1)
+					ereport(ERROR,
+							(errcode(ERRCODE_INTERNAL_ERROR),
+									ERRMSG_GP_INSUFFICIENT_STATEMENT_MEMORY));
+				
+				/*
+				* If stream_bottom is on, we store outerslot into hashslot, so that
+				* we can process it later.
+				*/
+				if (streaming)
+				{
+					Assert(tuple_remaining);
+					hashtable->prev_slot = outerslot;
+					/* Stream existing entries instead of spilling */
+					bBreak = true;
+					break;
+				}
 
-		/* Reset per-input-tuple context after each tuple */
-		ResetExprContext(tmpcontext);
+				if (!hashtable->is_spilling && aggstate->ss.ps.instrument && aggstate->ss.ps.instrument->need_cdb)
+				{
+					/* Update in-memory hash table statistics before spilling. */
+					agg_hash_table_stat_upd(hashtable);
+				}
 
-		if (streaming && !HAVE_FREESPACE(hashtable))
-		{
-			Assert(tuple_remaining);
-			ExecClearTuple(aggstate->hashslot);
-			/* Pause and stream entries before reading the next tuple */
+				spill_hash_table(aggstate);
+
+				entry = lookup_agg_hash_entry(aggstate, (void *)outerslot,
+											INPUT_RECORD_TUPLE, 0, hashkey, &isNew);
+			}
+
+			setGroupAggs(hashtable, entry);
+			
+			if (isNew)
+			{
+				int tup_len = memtuple_get_size((MemTuple)entry->tuple_and_aggs);
+				MemSet((char *)entry->tuple_and_aggs + MAXALIGN(tup_len), 0,
+					aggstate->numaggs * sizeof(AggStatePerGroupData));
+				initialize_aggregates(aggstate, hashtable->groupaggs->aggs, 0);
+			}
+				
+			/* Advance the aggregates */
+			if (DO_AGGSPLIT_COMBINE(aggstate->aggsplit))
+				combine_aggregates(aggstate, hashtable->groupaggs->aggs);
+			else
+				advance_aggregates(aggstate, hashtable->groupaggs->aggs);
+
+			hashtable->num_tuples++;
+
+			/* Reset per-input-tuple context after each tuple */
+			ResetExprContext(tmpcontext);
+
+			if (streaming && !HAVE_FREESPACE(hashtable))
+			{
+				Assert(tuple_remaining);
+				ExecClearTuple(aggstate->hashslot);
+				/* Pause and stream entries before reading the next tuple */
+				bBreak = true;
+				break;
+			}
+		}
+		if(bBreak){
 			break;
 		}
-
 		/* Read the next tuple */
-		outerslot = fetch_input_tuple(aggstate);
+		//outerslot = fetch_input_tuple(aggstate);
+		fetch_input_tuples(aggstate,&resultSlots);
 	}
 
 	if (GET_TOTAL_USED_SIZE(hashtable) > hashtable->mem_used)

@@ -149,7 +149,7 @@ ExecSeqScanBatch(ScanState *node,
 	ProjectionInfo *projInfo;
 	int batchSize = 0;
 	int resultRows = 0 ;
-
+	TupleTableSlot* newSlot,*piSlot;
 	/*
 	*	重置slot数据量
 	*/
@@ -182,11 +182,6 @@ ExecSeqScanBatch(ScanState *node,
 	*/
 	ResetExprContext(econtext);
 
-	CHECK_FOR_INTERRUPTS();
-
-	if (QueryFinishPending)
-		return ;
-
 	/*
 	 * get a tuple from the access method.  Loop until we obtain a tuple that
 	 * passes the qualification.
@@ -196,6 +191,10 @@ ExecSeqScanBatch(ScanState *node,
 	{
 		TupleTableSlot *slot;
 
+		CHECK_FOR_INTERRUPTS();
+
+		if (QueryFinishPending)
+			return NULL;
 		//上个批次处理完毕
 		if(node->ss_resultSlots.handledCnt >= node->ss_resultSlots.slotNum){
 			ResetExprContext(econtext);
@@ -250,8 +249,6 @@ ExecSeqScanBatch(ScanState *node,
 					* Form a projection tuple, store it in the result tuple slot
 					* and return it.
 					*/
-					TupleTableSlot* newSlot,*piSlot;
-					HeapTuple	tuple;
 					piSlot = projInfo->pi_slot;
 					//使用result slot中的 tupletableslot
 					if(TupIsNull(resultSlots->slots[resultRows]))

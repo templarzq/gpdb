@@ -295,6 +295,8 @@ extern void advance_aggregates(AggState *aggstate, AggStatePerGroup pergroup);
 extern void combine_aggregates(AggState *aggstate, AggStatePerGroup pergroup);
 extern TupleTableSlot *fetch_input_tuple(AggState *aggstate);
 
+void fetch_input_tuples(AggState *aggstate,TupleTableSlots* resultSlots);
+
 extern Datum GetAggInitVal(Datum textInitVal, Oid transtype);
 
 extern void advance_combine_function(AggState *aggstate,

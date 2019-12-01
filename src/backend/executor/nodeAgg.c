@@ -461,6 +461,41 @@ fetch_input_tuple(AggState *aggstate)
 	return slot;
 }
 
+
+void
+fetch_input_tuples(AggState *aggstate,TupleTableSlots* resultSlots)
+{
+	TupleTableSlot *slot;
+	bool bBreak = false;
+	
+	if (aggstate->sort_in)
+	{
+		if (!tuplesort_gettupleslot(aggstate->sort_in, true, aggstate->sort_slot,
+									NULL))
+			resultSlots->slots[resultSlots->slotNum] = NULL;
+		else{
+			resultSlots->slots[resultSlots->slotNum] = aggstate->sort_slot;
+		}
+		resultSlots->slotNum += 1;
+		return;
+	} else {
+		resultSlots->slotNum = 0;
+		ExecProcNodeBatch(outerPlanState(aggstate),resultSlots);
+		resultSlots->handledCnt = 0;
+	}
+
+	if (aggstate->sort_out){
+		for(int i=0;i<resultSlots->slotNum;i++){
+			slot = resultSlots->slots[i];
+			if(!TupIsNull(slot)){
+				tuplesort_puttupleslot(aggstate->sort_out, slot);
+			}else{
+				break;
+			}
+		}
+	}
+	return;
+}
 /*
  * (Re)Initialize an individual aggregate.
  *
@@ -2013,9 +2048,9 @@ agg_retrieve_direct(AggState *aggstate)
 				TupleTableSlots resultSlots;
 				memset(resultSlots.slots,0,sizeof(resultSlots.slots));
 				resultSlots.handledCnt = 0;
+
 				/* Reset per-input-tuple context after each tuple */
 				ResetExprContext(tmpcontext);
-
 				for (;;)
 				{
 					if (DO_AGGSPLIT_COMBINE(aggstate->aggsplit))
@@ -2027,7 +2062,6 @@ agg_retrieve_direct(AggState *aggstate)
 						outerPlanState(aggstate)->type == T_SortState
 					){
 						bool bBreak = false;
-						memset(resultSlots.slots,0,sizeof(resultSlots.slots));
 						resultSlots.slotNum = 0;
 						ExecProcNodeBatch(outerPlanState(aggstate),&resultSlots);
 						for(int i=0;i<resultSlots.slotNum;++i){
@@ -2070,7 +2104,6 @@ agg_retrieve_direct(AggState *aggstate)
 							break;
 						}
 					}else{
-						/* Reset per-input-tuple context after each tuple */
 						ResetExprContext(tmpcontext);
 						outerslot = fetch_input_tuple(aggstate);
 						if (TupIsNull(outerslot))
