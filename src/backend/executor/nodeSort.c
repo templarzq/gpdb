@@ -414,7 +414,7 @@ void ExecSortBatch(SortState *node,TupleTableSlots* resultSlots)
 		for (;;)
 		{
 			
-			if(outerNode->type == T_SeqScan){
+			if(outerNode->type == T_SeqScanState){
 				ExecProcNodeBatch(outerNode,&resultSlots);
 				bool bBreak = false;
 				for(int i=0;i<resultSlots.slotNum;++i){
@@ -493,12 +493,10 @@ void ExecSortBatch(SortState *node,TupleTableSlots* resultSlots)
 	 */
 	batchSize = sizeof(resultSlots->slots)/sizeof(TupleTableSlot*);
 	resultSlots->slotNum = 0;
-	
+
 	for(int i=0;i<batchSize;++i){
 		slot = resultSlots->slots[i];
-		if(slot != NULL){
-			slot = ExecClearTuple(slot);
-		}else{
+		if(slot == NULL){
 			slot = ExecInitExtraTupleSlot(estate);
 			ExecSetSlotDescriptor(slot, node->ss.ps.ps_ResultTupleSlot->tts_tupleDescriptor);
 		}

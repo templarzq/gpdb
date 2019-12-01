@@ -2011,7 +2011,9 @@ agg_retrieve_direct(AggState *aggstate)
 				 * until we exhaust the outer plan or cross a group boundary.
 				 */
 				TupleTableSlots resultSlots;
-
+				memset(resultSlots.slots,0,sizeof(resultSlots.slots));
+				resultSlots.handledCnt = 0;
+				
 				for (;;)
 				{
 					if (DO_AGGSPLIT_COMBINE(aggstate->aggsplit))
@@ -2026,6 +2028,7 @@ agg_retrieve_direct(AggState *aggstate)
 						outerPlanState(aggstate)->type == T_SortState
 					){
 						bool bBreak = false;
+						resultSlots.slotNum = 0;
 						ExecProcNodeBatch(outerPlanState(aggstate),&resultSlots);
 						for(int i=0;i<resultSlots.slotNum;++i){
 							outerslot = resultSlots.slots[i];
