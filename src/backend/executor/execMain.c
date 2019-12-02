@@ -3074,7 +3074,7 @@ ExecutePlan(EState *estate,
 	// while(bWait){
 	// 	sleep(1);
 	// };
-	//if (false){
+	// if (false){
 	if (operation == CMD_SELECT){
 		TupleTableSlots resultSlots;
 		memset(resultSlots.slots,0,sizeof(resultSlots.slots));

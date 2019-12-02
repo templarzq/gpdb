@@ -415,7 +415,7 @@ void ExecSortBatch(SortState *node,TupleTableSlots* resultSlots)
 		tmpSlots.handledCnt = 0;
 		for (;;)
 		{
-			if(outerNode->type == T_SeqScanState){
+			if(outerNode->type == T_SeqScan){
 				tmpSlots.slotNum = 0;
 				ExecProcNodeBatch(outerNode,&tmpSlots);
 				bool bBreak = false;

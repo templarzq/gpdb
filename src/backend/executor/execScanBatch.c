@@ -435,14 +435,6 @@ static void SeqNextBatch(SeqScanState *node)
 
 		for(int i=0;i<batchSize;++i){
 			tuple = heap_getnext(scandesc, direction);
-			slot = node->ss.ss_resultSlots.slots[i];
-			if(slot != NULL){
-				slot = ExecClearTuple(slot);
-			}else{
-				slot = ExecInitExtraTupleSlot(estate);
-				ExecSetSlotDescriptor(slot, node->ss.ss_ScanTupleSlot->tts_tupleDescriptor);
-			}
-			heap_copytuple_with_tuple(tuple,node->ss.ss_resultSlots.htups+i);
 			/*
 			* save the tuple and the buffer returned to us by the access methods in
 			* our scan tuple slot and return the slot.  Note: we pass 'false' because
@@ -452,6 +444,14 @@ static void SeqNextBatch(SeqScanState *node)
 			* refcount will not be dropped until the tuple table slot is cleared.
 			*/
 			if (tuple){
+				slot = node->ss.ss_resultSlots.slots[i];
+				if(slot != NULL){
+					slot = ExecClearTuple(slot);
+				}else{
+					slot = ExecInitExtraTupleSlot(estate);
+					ExecSetSlotDescriptor(slot, node->ss.ss_ScanTupleSlot->tts_tupleDescriptor);
+				}
+				heap_copytuple_with_tuple(tuple,node->ss.ss_resultSlots.htups+i);
 				slot = ExecStoreHeapTuple( node->ss.ss_resultSlots.htups+i,	/* tuple to store */
 									slot,	/* slot to store in */
 									scandesc->rs_cbuf,		/* buffer associated with this
@@ -465,7 +465,6 @@ static void SeqNextBatch(SeqScanState *node)
 				node->ss.ss_resultSlots.slotNum += 1;
 				break;
 			}
-				
 		}
 	}
 	return;
