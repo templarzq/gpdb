@@ -164,6 +164,13 @@ ExecSeqScanBatch(ScanState *node,
 	projInfo = node->ps.ps_ProjInfo;
 	econtext = node->ps.ps_ExprContext;
 
+
+
+	/*
+	* Reset per-tuple memory context to free any expression evaluation
+	* storage allocated in the previous tuple cycle.
+	*/
+	ResetExprContext(econtext);
 	/*
 	 * If we have neither a qual to check nor a projection to do, just skip
 	 * all the overhead and return the raw scan tuple.
@@ -175,12 +182,6 @@ ExecSeqScanBatch(ScanState *node,
 		*resultSlots = node->ss_resultSlots;
 		return;
 	}
-
-	/*
-	* Reset per-tuple memory context to free any expression evaluation
-	* storage allocated in the previous tuple cycle.
-	*/
-	ResetExprContext(econtext);
 
 	/*
 	 * get a tuple from the access method.  Loop until we obtain a tuple that
@@ -197,7 +198,6 @@ ExecSeqScanBatch(ScanState *node,
 			return NULL;
 		//上个批次处理完毕
 		if(node->ss_resultSlots.handledCnt >= node->ss_resultSlots.slotNum){
-			ResetExprContext(econtext);
 			node->ss_resultSlots.slotNum = 0;
 			ExecScanFetchBatch(node, accessMtd, recheckMtd);
 			node->ss_resultSlots.handledCnt = 0;
@@ -255,6 +255,8 @@ ExecSeqScanBatch(ScanState *node,
 					{
 						newSlot = ExecInitExtraTupleSlot(((SeqScanState*)node)->ss.ps.state);
 						ExecSetSlotDescriptor(newSlot, piSlot->tts_tupleDescriptor);
+						//has no memtup/heaptup,so should not free.
+						TupClearShouldFree(newSlot);
 					}
 					else{
 						newSlot = resultSlots->slots[resultRows];

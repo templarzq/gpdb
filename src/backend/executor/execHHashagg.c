@@ -941,8 +941,8 @@ agg_hash_initial_pass(AggState *aggstate)
 		bool isNew;
 		HashAggEntry *entry;
 		bool bBreak =false;
-		for(int i=0;i<resultSlots.slotNum;++i){
-			outerslot = resultSlots.slots[i];
+		//for(int i=0;i<resultSlots.slotNum;++i){
+		//	outerslot = resultSlots.slots[i];
 			/* no more tuple. Done */
 			if (TupIsNull(outerslot))
 			{
@@ -1038,13 +1038,13 @@ agg_hash_initial_pass(AggState *aggstate)
 				bBreak = true;
 				break;
 			}
-		}
-		if(bBreak){
-			break;
-		}
+		// }
+		// if(bBreak){
+		// 	break;
+		// }
 		/* Read the next tuple */
-		//outerslot = fetch_input_tuple(aggstate);
-		fetch_input_tuples(aggstate,&resultSlots);
+		outerslot = fetch_input_tuple(aggstate);
+		//fetch_input_tuples(aggstate,&resultSlots);
 	}
 
 	if (GET_TOTAL_USED_SIZE(hashtable) > hashtable->mem_used)

@@ -448,13 +448,19 @@ void ExecProcNodeBatch(PlanState *node,TupleTableSlots *resultSlots)
 				break;
 		}
 
-		if(nodeTag(node) == T_SeqScanState || nodeTag(node)==T_SortState){
+		if(nodeTag(node) == T_SeqScanState 
+			 || nodeTag(node)==T_SortState)
+		{
+			if(resultSlots->slotNum>0){
+				if(!TupIsNull(resultSlots->slots[resultSlots->slotNum-1])){
+					node->gpmon_pkt.u.qexec.rowsout += resultSlots->slotNum;
+				}else{
+					node->gpmon_pkt.u.qexec.rowsout += resultSlots->slotNum-1;
+				}
+			}
+	
 			for(int i=0;i<resultSlots->slotNum;++i){
 				result = resultSlots->slots[i];
-				if (!TupIsNull(result))
-				{
-					Gpmon_Incr_Rows_Out(&node->gpmon_pkt);
-				}
 				if (node->instrument)
 					InstrStopNode(node->instrument, TupIsNull(result) ? 0 : 1);
 			}

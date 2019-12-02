@@ -2046,10 +2046,7 @@ agg_retrieve_direct(AggState *aggstate)
 				 * until we exhaust the outer plan or cross a group boundary.
 				 */
 
-
-
-				if(outerPlanState(aggstate)->type == T_SeqScanState ||
-					outerPlanState(aggstate)->type == T_SortState
+				if(outerPlanState(aggstate)->type == T_SeqScanState //|| outerPlanState(aggstate)->type == T_SortState
 				){
 					void (*aggfunc)(AggState *aggstate, AggStatePerGroup pergroup);
 					/* Reset per-input-tuple context after each tuple */

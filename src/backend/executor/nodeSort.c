@@ -501,12 +501,14 @@ void ExecSortBatch(SortState *node,TupleTableSlots* resultSlots)
 		if(slot == NULL){
 			slot = ExecInitExtraTupleSlot(estate);
 			ExecSetSlotDescriptor(slot, node->ss.ps.ps_ResultTupleSlot->tts_tupleDescriptor);
+			//has no memtup/heaptup,so should not free.
+			TupClearShouldFree(slot);
+		}else{
+			ExecClearTuple(slot);
 		}
 		(void) tuplesort_gettupleslot(tuplesortstate,
 							ScanDirectionIsForward(dir),
 							slot, NULL);
-
-		resultSlots->slots[i] = slot;
 		resultSlots->slotNum += 1;
 		if (TupIsNull(slot) && !node->delayEagerFree)
 		{
