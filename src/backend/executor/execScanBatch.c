@@ -289,6 +289,7 @@ ExecSeqScanBatch(ScanState *node,
 				}
 			} else {
 				InstrCountFiltered1(node, 1);
+				node->ss_resultSlots.handledCnt++;
 			}
 		}
 	}

@@ -2051,22 +2051,27 @@ agg_retrieve_direct(AggState *aggstate)
 				if(outerPlanState(aggstate)->type == T_SeqScanState ||
 					outerPlanState(aggstate)->type == T_SortState
 				){
+					void (*aggfunc)(AggState *aggstate, AggStatePerGroup pergroup);
 					/* Reset per-input-tuple context after each tuple */
 					ResetExprContext(tmpcontext);
 					TupleTableSlots resultSlots;
 					memset(resultSlots.slots,0,sizeof(resultSlots.slots));
 					resultSlots.handledCnt = 0;
+					if (DO_AGGSPLIT_COMBINE(aggstate->aggsplit)){
+						aggfunc = combine_aggregates;
+					}else{
+						aggfunc = advance_aggregates;
+					}
 
 					for (;;)
 					{
 						bool bBreak = false;
 						resultSlots.slotNum = 0;
+						
 						ExecProcNodeBatch(outerPlanState(aggstate),&resultSlots);
+				
 						for(int i=0;i<resultSlots.slotNum;++i){
-							if (DO_AGGSPLIT_COMBINE(aggstate->aggsplit))
-								combine_aggregates(aggstate, pergroup);
-							else
-								advance_aggregates(aggstate, pergroup);
+							aggfunc(aggstate, pergroup);
 							outerslot = resultSlots.slots[i];
 							if (TupIsNull(outerslot)){
 								/* no more outer-plan tuples available */
@@ -2107,11 +2112,13 @@ agg_retrieve_direct(AggState *aggstate)
 						}
 					}	
 				}else{
+					void (*aggfunc)(AggState *aggstate, AggStatePerGroup pergroup);
+					if (DO_AGGSPLIT_COMBINE(aggstate->aggsplit))
+						aggfunc = combine_aggregates;
+					else
+						aggfunc = advance_aggregates;
 					for (;;){
-						if (DO_AGGSPLIT_COMBINE(aggstate->aggsplit))
-								combine_aggregates(aggstate, pergroup);
-							else
-								advance_aggregates(aggstate, pergroup);
+						aggfunc(aggstate, pergroup);
 						ResetExprContext(tmpcontext);
 						outerslot = fetch_input_tuple(aggstate);
 						if (TupIsNull(outerslot))
