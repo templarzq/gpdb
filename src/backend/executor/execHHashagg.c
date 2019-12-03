@@ -935,14 +935,20 @@ agg_hash_initial_pass(AggState *aggstate)
 	/*
 	 * Process outer-plan tuples, until we exhaust the outer plan.
 	 */
+	void (*aggfunc)(AggState *aggstate, AggStatePerGroup pergroup);
+	if (DO_AGGSPLIT_COMBINE(aggstate->aggsplit)){
+		aggfunc = combine_aggregates;
+	}else{
+		aggfunc = advance_aggregates;
+	}
 	while(true)
 	{
 		HashKey hashkey;
 		bool isNew;
 		HashAggEntry *entry;
 		bool bBreak =false;
-		//for(int i=0;i<resultSlots.slotNum;++i){
-		//	outerslot = resultSlots.slots[i];
+		for(int i=0;i<resultSlots.slotNum;++i){
+			outerslot = resultSlots.slots[i];
 			/* no more tuple. Done */
 			if (TupIsNull(outerslot))
 			{
@@ -1020,10 +1026,7 @@ agg_hash_initial_pass(AggState *aggstate)
 			}
 				
 			/* Advance the aggregates */
-			if (DO_AGGSPLIT_COMBINE(aggstate->aggsplit))
-				combine_aggregates(aggstate, hashtable->groupaggs->aggs);
-			else
-				advance_aggregates(aggstate, hashtable->groupaggs->aggs);
+			aggfunc(aggstate, hashtable->groupaggs->aggs);
 
 			hashtable->num_tuples++;
 
@@ -1038,13 +1041,13 @@ agg_hash_initial_pass(AggState *aggstate)
 				bBreak = true;
 				break;
 			}
-		// }
-		// if(bBreak){
-		// 	break;
-		// }
+		}
+		if(bBreak){
+			break;
+		}
 		/* Read the next tuple */
-		outerslot = fetch_input_tuple(aggstate);
-		//fetch_input_tuples(aggstate,&resultSlots);
+		//outerslot = fetch_input_tuple(aggstate);
+		fetch_input_tuples(aggstate,&resultSlots);
 	}
 
 	if (GET_TOTAL_USED_SIZE(hashtable) > hashtable->mem_used)

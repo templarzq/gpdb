@@ -26,6 +26,7 @@
 #include "utils/workfile_mgr.h"
 #include "executor/instrument.h"
 #include "utils/faultinjector.h"
+#include <unistd.h>
 
 static void ExecSortExplainEnd(PlanState *planstate, struct StringInfoData *buf);
 static void ExecEagerFreeSort(SortState *node);
@@ -179,12 +180,12 @@ ExecSort(SortState *node)
 		/*
 		 * Scan the subplan and feed all the tuples to tuplesort.
 		 */
-		TupleTableSlots resultSlots;
-		memset(resultSlots.slots,0,sizeof(resultSlots.slots));
-		resultSlots.handledCnt = 0;
-		for (;;)
-		{
-			if(outerNode->type == T_SeqScanState){
+		if(outerNode->type == T_SeqScanState){
+			TupleTableSlots resultSlots;
+			memset(resultSlots.slots,0,sizeof(resultSlots.slots));
+			resultSlots.handledCnt = 0;
+			for (;;)
+			{
 				resultSlots.slotNum = 0;
 				ExecProcNodeBatch(outerNode,&resultSlots);
 				bool bBreak = false;
@@ -199,15 +200,16 @@ ExecSort(SortState *node)
 				if(bBreak){
 					break;
 				}
-			}else{
+			}
+		}else{
+			for (;;)
+			{
 				slot = ExecProcNode(outerNode);
 
 				if (TupIsNull(slot))
 					break;
-
 				tuplesort_puttupleslot(tuplesortstate, slot);
 			}
-
 		}
 
 		SIMPLE_FAULT_INJECTOR("execsort_before_sorting");
@@ -413,12 +415,17 @@ void ExecSortBatch(SortState *node,TupleTableSlots* resultSlots)
 		TupleTableSlots tmpSlots;
 		memset(tmpSlots.slots,0,sizeof(tmpSlots.slots));
 		tmpSlots.handledCnt = 0;
-		for (;;)
-		{
-			if(outerNode->type == T_SeqScan){
+		if(outerNode->type == T_SeqScanState){
+			// bool bWait = true;
+			// while(bWait){
+			// 	sleep(1);
+			// };
+			bool bBreak = false;
+			for (;!bBreak;)
+			{
 				tmpSlots.slotNum = 0;
 				ExecProcNodeBatch(outerNode,&tmpSlots);
-				bool bBreak = false;
+
 				for(int i=0;i<tmpSlots.slotNum;++i){
 					slot = tmpSlots.slots[i];
 					if (TupIsNull(slot)){
@@ -427,18 +434,16 @@ void ExecSortBatch(SortState *node,TupleTableSlots* resultSlots)
 					}
 					tuplesort_puttupleslot(tuplesortstate, slot);
 				}
-				if(bBreak){
-					break;
-				}
-			}else{
+			}
+		}else{
+			for (;;)
+			{
 				slot = ExecProcNode(outerNode);
 
 				if (TupIsNull(slot))
 					break;
-
 				tuplesort_puttupleslot(tuplesortstate, slot);
 			}
-
 		}
 
 		SIMPLE_FAULT_INJECTOR("execsort_before_sorting");

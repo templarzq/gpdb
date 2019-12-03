@@ -213,7 +213,7 @@ void ExecProcNodeBatch(PlanState *node,TupleTableSlots *resultSlots)
 		* so one additional operator execution should not be a big hit.
 		*/
 		if (QueryFinishPending && !IsA(node, MotionState))
-			return NULL;
+			return;
 
 		if (node->plan)
 			TRACE_POSTGRESQL_EXECPROCNODE_ENTER(GpIdentity.segindex, currentSliceId, nodeTag(node), node->plan->plan_node_id);
@@ -448,7 +448,7 @@ void ExecProcNodeBatch(PlanState *node,TupleTableSlots *resultSlots)
 				break;
 		}
 
-		if(nodeTag(node) == T_SeqScanState 
+		if(nodeTag(node) == T_SeqScanState
 			 || nodeTag(node)==T_SortState)
 		{
 			if(resultSlots->slotNum>0){

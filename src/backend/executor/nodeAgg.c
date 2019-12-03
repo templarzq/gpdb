@@ -2046,7 +2046,8 @@ agg_retrieve_direct(AggState *aggstate)
 				 * until we exhaust the outer plan or cross a group boundary.
 				 */
 
-				if(outerPlanState(aggstate)->type == T_SeqScanState //|| outerPlanState(aggstate)->type == T_SortState
+				if(outerPlanState(aggstate)->type == T_SeqScanState 
+					//|| outerPlanState(aggstate)->type == T_SortState
 				){
 					void (*aggfunc)(AggState *aggstate, AggStatePerGroup pergroup);
 					/* Reset per-input-tuple context after each tuple */
@@ -2060,11 +2061,10 @@ agg_retrieve_direct(AggState *aggstate)
 						aggfunc = advance_aggregates;
 					}
 
-					for (;;)
+					bool bBreak = false;
+					for (;!bBreak;)
 					{
-						bool bBreak = false;
 						resultSlots.slotNum = 0;
-						
 						ExecProcNodeBatch(outerPlanState(aggstate),&resultSlots);
 				
 						for(int i=0;i<resultSlots.slotNum;++i){
@@ -2104,10 +2104,7 @@ agg_retrieve_direct(AggState *aggstate)
 								}
 							}
 						}
-						if(bBreak){
-							break;
-						}
-					}	
+					}
 				}else{
 					void (*aggfunc)(AggState *aggstate, AggStatePerGroup pergroup);
 					if (DO_AGGSPLIT_COMBINE(aggstate->aggsplit))

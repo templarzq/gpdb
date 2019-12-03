@@ -27,6 +27,7 @@
 #include "utils/snapmgr.h"
 #include "cdb/cdbappendonlyam.h"
 #include "cdb/cdbaocsam.h"
+#include <unistd.h>
 
 static void
 InitAOCSScanOpaque(SeqScanState *scanstate, Relation currentRelation);
@@ -137,166 +138,6 @@ void ExecScanFetchBatch(ScanState *node,
 	 */
 	return (*accessMtd) (node);
 }
-
-void
-ExecSeqScanBatch(ScanState *node,
-		 ExecScanAccessMtd accessMtd,	/* function returning a tuple */
-		 ExecScanRecheckMtd recheckMtd,
-		 TupleTableSlots *resultSlots)
-{
-	ExprContext *econtext;
-	List	   *qual;
-	ProjectionInfo *projInfo;
-	int batchSize = 0;
-	int resultRows = 0 ;
-	TupleTableSlot* newSlot,*piSlot;
-	/*
-	*	重置slot数据量
-	*/
-	Assert(resultSlots);
-	resultSlots->slotNum = 0;
-	batchSize = sizeof(resultSlots->slots)/sizeof(TupleTableSlot*);
-	
-	/*
-	 * Fetch data from node
-	 */
-	qual = node->ps.qual;
-	projInfo = node->ps.ps_ProjInfo;
-	econtext = node->ps.ps_ExprContext;
-
-
-
-	/*
-	* Reset per-tuple memory context to free any expression evaluation
-	* storage allocated in the previous tuple cycle.
-	*/
-	ResetExprContext(econtext);
-	/*
-	 * If we have neither a qual to check nor a projection to do, just skip
-	 * all the overhead and return the raw scan tuple.
-	 */
-	if (!qual && !projInfo)
-	{
-		TupleTableSlot *slot;
-		ExecScanFetchBatch(node, accessMtd, recheckMtd);
-		*resultSlots = node->ss_resultSlots;
-		return;
-	}
-
-	/*
-	 * get a tuple from the access method.  Loop until we obtain a tuple that
-	 * passes the qualification.
-	 */
-
-	for (;;)
-	{
-		TupleTableSlot *slot;
-
-		CHECK_FOR_INTERRUPTS();
-
-		if (QueryFinishPending)
-			return NULL;
-		//上个批次处理完毕
-		if(node->ss_resultSlots.handledCnt >= node->ss_resultSlots.slotNum){
-			node->ss_resultSlots.slotNum = 0;
-			ExecScanFetchBatch(node, accessMtd, recheckMtd);
-			node->ss_resultSlots.handledCnt = 0;
-		}
-
-
-		for(int i=node->ss_resultSlots.handledCnt;i<node->ss_resultSlots.slotNum;++i){
-
-			slot = node->ss_resultSlots.slots[i];
-			/*
-			* if the slot returned by the accessMtd contains NULL, then it means
-			* there is nothing more to scan so we just return an empty slot,
-			* being careful to use the projection result slot so it has correct
-			* tupleDesc.
-			*/
-			if (TupIsNull(slot))
-			{
-				if (projInfo){
-					slot = ExecClearTuple(projInfo->pi_slot);
-				}
-				//所有结果处理完毕
-				resultSlots->slots[resultRows] = slot;
-				resultSlots->slotNum += 1;
-				resultRows += 1;
-				node->ss_resultSlots.slotNum = 0;
-				node->ss_resultSlots.handledCnt = 0;
-				return;
-			}
-
-			/*
-			* place the current tuple into the expr context
-			*/
-			econtext->ecxt_scantuple = slot;
-			/*
-			* check that the current tuple satisfies the qual-clause
-			*
-			* check for non-nil qual here to avoid a function call to ExecQual()
-			* when the qual is nil ... saves only a few cycles, but they add up
-			* ...
-			*/
-			if (!qual || ExecQual(qual, econtext, false))
-			{
-				/*
-				* Found a satisfactory scan tuple.
-				*/
-				if (projInfo)
-				{
-					/*
-					* Form a projection tuple, store it in the result tuple slot
-					* and return it.
-					*/
-					piSlot = projInfo->pi_slot;
-					//使用result slot中的 tupletableslot
-					if(TupIsNull(resultSlots->slots[resultRows]))
-					{
-						newSlot = ExecInitExtraTupleSlot(((SeqScanState*)node)->ss.ps.state);
-						ExecSetSlotDescriptor(newSlot, piSlot->tts_tupleDescriptor);
-						//has no memtup/heaptup,so should not free.
-						TupClearShouldFree(newSlot);
-					}
-					else{
-						newSlot = resultSlots->slots[resultRows];
-					}
-					
-					projInfo->pi_slot = newSlot;
-
-					newSlot = ExecProject(projInfo, NULL);
-					//使用完毕，交换slot
-					projInfo->pi_slot = piSlot;
-
-					resultSlots->slots[resultRows] = newSlot;
-					resultSlots->slotNum += 1;
-					node->ss_resultSlots.handledCnt ++;
-					resultRows += 1;
-					if(resultRows == batchSize){
-						return;
-					}
-				}
-				else
-				{
-					/*
-					* Here, we aren't projecting, so just return scan tuple.
-					*/
-					resultSlots->slots[resultRows] = slot;
-					resultSlots->slotNum += 1;
-					node->ss_resultSlots.handledCnt ++;
-					resultRows += 1;
-					if(resultRows == batchSize){
-						return;
-					}
-				}
-			} else {
-				InstrCountFiltered1(node, 1);
-				node->ss_resultSlots.handledCnt++;
-			}
-		}
-	}
-}
-
 
 /* ----------------------------------------------------------------
  *						Scan Support
@@ -446,14 +287,14 @@ static void SeqNextBatch(SeqScanState *node)
 			* that ExecStoreTuple will increment the refcount of the buffer; the
 			* refcount will not be dropped until the tuple table slot is cleared.
 			*/
+			slot = node->ss.ss_resultSlots.slots[i];
+			if(slot != NULL){
+				slot = ExecClearTuple(slot);
+			}else{
+				slot = ExecInitExtraTupleSlot(estate);
+				ExecSetSlotDescriptor(slot, node->ss.ss_ScanTupleSlot->tts_tupleDescriptor);
+			}
 			if (tuple){
-				slot = node->ss.ss_resultSlots.slots[i];
-				if(slot != NULL){
-					slot = ExecClearTuple(slot);
-				}else{
-					slot = ExecInitExtraTupleSlot(estate);
-					ExecSetSlotDescriptor(slot, node->ss.ss_ScanTupleSlot->tts_tupleDescriptor);
-				}
 				heap_copytuple_with_tuple(tuple,node->ss.ss_resultSlots.htups+i);
 				slot = ExecStoreHeapTuple( node->ss.ss_resultSlots.htups+i,	/* tuple to store */
 									slot,	/* slot to store in */
@@ -463,7 +304,6 @@ static void SeqNextBatch(SeqScanState *node)
 				node->ss.ss_resultSlots.slots[i] = slot;
 				node->ss.ss_resultSlots.slotNum += 1;
 			} else {
-				ExecClearTuple(slot);
 				node->ss.ss_resultSlots.slots[i] = slot;
 				node->ss.ss_resultSlots.slotNum += 1;
 				break;
@@ -472,6 +312,170 @@ static void SeqNextBatch(SeqScanState *node)
 	}
 	return;
 }
+
+void
+ExecSeqScanBatch(ScanState *node,
+		 ExecScanAccessMtd accessMtd,	/* function returning a tuple */
+		 ExecScanRecheckMtd recheckMtd,
+		 TupleTableSlots *resultSlots)
+{
+	ExprContext *econtext;
+	List	   *qual;
+	ProjectionInfo *projInfo;
+	int batchSize = 0;
+	int resultRows = 0 ;
+	TupleTableSlot* newSlot,*piSlot;
+	/*
+	*	重置slot数据量
+	*/
+	Assert(resultSlots);
+	resultSlots->slotNum = 0;
+	batchSize = sizeof(resultSlots->slots)/sizeof(TupleTableSlot*);
+	
+	/*
+	 * Fetch data from node
+	 */
+	qual = node->ps.qual;
+	projInfo = node->ps.ps_ProjInfo;
+	econtext = node->ps.ps_ExprContext;
+
+	// bool bWait = true;
+	// while(bWait){
+	// 	sleep(1);
+	// };
+
+	/*
+	* Reset per-tuple memory context to free any expression evaluation
+	* storage allocated in the previous tuple cycle.
+	*/
+	ResetExprContext(econtext);
+	/*
+	 * If we have neither a qual to check nor a projection to do, just skip
+	 * all the overhead and return the raw scan tuple.
+	 */
+	if (!qual && !projInfo)
+	{
+		TupleTableSlot *slot;
+		ExecScanFetchBatch(node, accessMtd, recheckMtd);
+		*resultSlots = node->ss_resultSlots;
+		return;
+	}
+
+	/*
+	 * get a tuple from the access method.  Loop until we obtain a tuple that
+	 * passes the qualification.
+	 */
+
+	for (;;)
+	{
+		TupleTableSlot *slot;
+
+		CHECK_FOR_INTERRUPTS();
+
+		if (QueryFinishPending)
+			return NULL;
+		//上个批次处理完毕
+		if(node->ss_resultSlots.handledCnt >= node->ss_resultSlots.slotNum){
+			node->ss_resultSlots.slotNum = 0;
+			ExecScanFetchBatch(node, accessMtd, recheckMtd);
+			node->ss_resultSlots.handledCnt = 0;
+		}
+
+
+		for(int i=node->ss_resultSlots.handledCnt;i<node->ss_resultSlots.slotNum;++i){
+
+			slot = node->ss_resultSlots.slots[i];
+			/*
+			* if the slot returned by the accessMtd contains NULL, then it means
+			* there is nothing more to scan so we just return an empty slot,
+			* being careful to use the projection result slot so it has correct
+			* tupleDesc.
+			*/
+			if (TupIsNull(slot))
+			{
+				if(resultSlots->slots[resultRows]!=NULL){
+					ExecClearTuple(resultSlots->slots[resultRows]);
+				}
+				//所有结果处理完毕
+				resultSlots->slotNum += 1;
+				resultRows += 1;
+				node->ss_resultSlots.slotNum = 0;
+				node->ss_resultSlots.handledCnt = 0;
+				return;
+			}
+
+			/*
+			* place the current tuple into the expr context
+			*/
+			econtext->ecxt_scantuple = slot;
+			/*
+			* check that the current tuple satisfies the qual-clause
+			*
+			* check for non-nil qual here to avoid a function call to ExecQual()
+			* when the qual is nil ... saves only a few cycles, but they add up
+			* ...
+			*/
+			if (!qual || ExecQual(qual, econtext, false))
+			{
+				/*
+				* Found a satisfactory scan tuple.
+				*/
+				if (projInfo)
+				{
+					/*
+					* Form a projection tuple, store it in the result tuple slot
+					* and return it.
+					*/
+					piSlot = projInfo->pi_slot;
+					//使用result slot中的 tupletableslot
+					if(TupIsNull(resultSlots->slots[resultRows]))
+					{
+						newSlot = ExecInitExtraTupleSlot(((SeqScanState*)node)->ss.ps.state);
+						ExecSetSlotDescriptor(newSlot, piSlot->tts_tupleDescriptor);
+						//has no memtup/heaptup,so should not free.
+						TupClearShouldFree(newSlot);
+					}
+					else{
+						newSlot = resultSlots->slots[resultRows];
+					}
+					
+					projInfo->pi_slot = newSlot;
+
+					newSlot = ExecProject(projInfo, NULL);
+					//使用完毕，交换slot
+					projInfo->pi_slot = piSlot;
+
+					resultSlots->slots[resultRows] = newSlot;
+					resultSlots->slotNum += 1;
+					node->ss_resultSlots.handledCnt ++;
+					resultRows += 1;
+					if(resultRows == batchSize){
+						return;
+					}
+				}
+				else
+				{
+					/*
+					* Here, we aren't projecting, so just return scan tuple.
+					*/
+					resultSlots->slots[resultRows] = slot;
+					resultSlots->slotNum += 1;
+					node->ss_resultSlots.handledCnt ++;
+					resultRows += 1;
+					if(resultRows == batchSize){
+						return;
+					}
+				}
+			} else {
+				InstrCountFiltered1(node, 1);
+				node->ss_resultSlots.handledCnt++;
+			}
+		}
+	}
+}
+
+
+
 
 
 static void
