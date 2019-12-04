@@ -91,8 +91,6 @@ void ExecScanFetchBatch(ScanState *node,
 			 */
 			if (!(*recheckMtd) (node, slot)){
 				ExecClearTuple(slot);	/* would not be returned by scan */
-				node->ss_resultSlots.slots[0] = slot;
-				node->ss_resultSlots.slotNum = 1;
 				return;
 			}
 		}
@@ -103,8 +101,6 @@ void ExecScanFetchBatch(ScanState *node,
 			/* Return empty slot if we already returned a tuple */
 			if (estate->es_epqScanDone[scanrelid - 1]){
 				ExecClearTuple(slot);
-				node->ss_resultSlots.slots[0] = slot;
-				node->ss_resultSlots.slotNum = 1;
 				return;
 			}
 			/* Else mark to remember that we shouldn't return more */
@@ -113,8 +109,6 @@ void ExecScanFetchBatch(ScanState *node,
 			/* Return empty slot if we haven't got a test tuple */
 			if (estate->es_epqTuple[scanrelid - 1] == NULL){
 				ExecClearTuple(slot);
-				node->ss_resultSlots.slots[0] = slot;
-				node->ss_resultSlots.slotNum = 1;
 				return;
 			}
 				
@@ -126,8 +120,6 @@ void ExecScanFetchBatch(ScanState *node,
 			/* Check if it meets the access-method conditions */
 			if (!(*recheckMtd) (node, slot)){
 				ExecClearTuple(slot);	/* would not be returned by scan */
-				node->ss_resultSlots.slots[0] = slot;
-				node->ss_resultSlots.slotNum = 1;
 				return;
 			}
 		}
@@ -236,19 +228,16 @@ static void SeqNextBatch(SeqScanState *node)
 	{
 		for(int i=0;i<batchSize;++i){
 			slot = node->ss.ss_resultSlots.slots[i];
-			if(slot!=NULL){
-				slot = ExecClearTuple(slot);
-			}else{
+			if(slot==NULL){
 				slot = ExecInitExtraTupleSlot(estate);
 				ExecSetSlotDescriptor(slot, node->ss.ss_ScanTupleSlot->tts_tupleDescriptor);
 			}
 			appendonly_getnext(node->ss_currentScanDesc_ao, direction, slot);
-
-			node->ss.ss_resultSlots.slots[i] = slot;
-
-			node->ss.ss_resultSlots.slotNum += 1;
 			if(TupIsNull(slot)){
 				break;
+			}else{
+				node->ss.ss_resultSlots.slots[i] = slot;
+				node->ss.ss_resultSlots.slotNum += 1;
 			}
 		}
 	}
@@ -256,19 +245,18 @@ static void SeqNextBatch(SeqScanState *node)
 	{
 		for(int i=0;i<batchSize;++i){
 			slot = node->ss.ss_resultSlots.slots[i];
-			if(slot!=NULL){
-				slot = ExecClearTuple(slot);
-			}else{
+			if(slot==NULL){
 				slot = ExecInitExtraTupleSlot(estate);
 				ExecSetSlotDescriptor(slot, node->ss.ss_ScanTupleSlot->tts_tupleDescriptor);
 			}
 			
 			aocs_getnext(node->ss_currentScanDesc_aocs, direction, slot);
 			
-			node->ss.ss_resultSlots.slots[i] = slot;
-			node->ss.ss_resultSlots.slotNum += 1;
 			if(TupIsNull(slot)){
 				break;
+			}else{
+				node->ss.ss_resultSlots.slots[i] = slot;
+				node->ss.ss_resultSlots.slotNum += 1;
 			}
 		}
 	}
@@ -278,6 +266,7 @@ static void SeqNextBatch(SeqScanState *node)
 		HeapScanDesc scandesc = node->ss_currentScanDesc_heap;
 
 		for(int i=0;i<batchSize;++i){
+			scandesc->rs_pTup = node->ss.ss_resultSlots.htups+i;
 			tuple = heap_getnext(scandesc, direction);
 			/*
 			* save the tuple and the buffer returned to us by the access methods in
@@ -287,16 +276,14 @@ static void SeqNextBatch(SeqScanState *node)
 			* that ExecStoreTuple will increment the refcount of the buffer; the
 			* refcount will not be dropped until the tuple table slot is cleared.
 			*/
-			slot = node->ss.ss_resultSlots.slots[i];
-			if(slot != NULL){
-				slot = ExecClearTuple(slot);
-			}else{
-				slot = ExecInitExtraTupleSlot(estate);
-				ExecSetSlotDescriptor(slot, node->ss.ss_ScanTupleSlot->tts_tupleDescriptor);
-			}
 			if (tuple){
-				heap_copytuple_with_tuple(tuple,node->ss.ss_resultSlots.htups+i);
-				slot = ExecStoreHeapTuple( node->ss.ss_resultSlots.htups+i,	/* tuple to store */
+				slot = node->ss.ss_resultSlots.slots[i];
+				if(slot == NULL){
+					slot = ExecInitExtraTupleSlot(estate);
+					ExecSetSlotDescriptor(slot, node->ss.ss_ScanTupleSlot->tts_tupleDescriptor);
+					TupClearShouldFree(slot);
+				}
+				slot = ExecStoreHeapTuple( tuple,	/* tuple to store */
 									slot,	/* slot to store in */
 									scandesc->rs_cbuf,		/* buffer associated with this
 																* tuple */
@@ -304,8 +291,6 @@ static void SeqNextBatch(SeqScanState *node)
 				node->ss.ss_resultSlots.slots[i] = slot;
 				node->ss.ss_resultSlots.slotNum += 1;
 			} else {
-				node->ss.ss_resultSlots.slots[i] = slot;
-				node->ss.ss_resultSlots.slotNum += 1;
 				break;
 			}
 		}
@@ -379,31 +364,15 @@ ExecSeqScanBatch(ScanState *node,
 			node->ss_resultSlots.slotNum = 0;
 			ExecScanFetchBatch(node, accessMtd, recheckMtd);
 			node->ss_resultSlots.handledCnt = 0;
-		}
-
-
-		for(int i=node->ss_resultSlots.handledCnt;i<node->ss_resultSlots.slotNum;++i){
-
-			slot = node->ss_resultSlots.slots[i];
-			/*
-			* if the slot returned by the accessMtd contains NULL, then it means
-			* there is nothing more to scan so we just return an empty slot,
-			* being careful to use the projection result slot so it has correct
-			* tupleDesc.
-			*/
-			if (TupIsNull(slot))
-			{
-				if(resultSlots->slots[resultRows]!=NULL){
-					ExecClearTuple(resultSlots->slots[resultRows]);
-				}
+			if(node->ss_resultSlots.slotNum == 0){
 				//所有结果处理完毕
-				resultSlots->slotNum += 1;
-				resultRows += 1;
-				node->ss_resultSlots.slotNum = 0;
-				node->ss_resultSlots.handledCnt = 0;
+				resultSlots->slotNum = 0;
 				return;
 			}
+		}
 
+		for(int i=node->ss_resultSlots.handledCnt;i<node->ss_resultSlots.slotNum;++i){
+			slot = node->ss_resultSlots.slots[i];
 			/*
 			* place the current tuple into the expr context
 			*/
@@ -428,7 +397,7 @@ ExecSeqScanBatch(ScanState *node,
 					*/
 					piSlot = projInfo->pi_slot;
 					//使用result slot中的 tupletableslot
-					if(TupIsNull(resultSlots->slots[resultRows]))
+					if(resultSlots->slots[resultRows]==NULL)
 					{
 						newSlot = ExecInitExtraTupleSlot(((SeqScanState*)node)->ss.ps.state);
 						ExecSetSlotDescriptor(newSlot, piSlot->tts_tupleDescriptor);
@@ -470,6 +439,9 @@ ExecSeqScanBatch(ScanState *node,
 				InstrCountFiltered1(node, 1);
 				node->ss_resultSlots.handledCnt++;
 			}
+		}
+		if(node->ss_resultSlots.slotNum<batchSize){
+			return ;
 		}
 	}
 }

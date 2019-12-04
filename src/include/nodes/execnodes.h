@@ -2705,6 +2705,7 @@ typedef struct AggState
 	 * which an Agg's target list usually has.
 	 */
 	bool		ps_TupFromTlist;
+	TupleTableSlots as_resultSlots;
 } AggState;
 
 /* ----------------

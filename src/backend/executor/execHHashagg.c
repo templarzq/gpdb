@@ -904,7 +904,10 @@ agg_hash_initial_pass(AggState *aggstate)
 	ExprContext *tmpcontext = aggstate->tmpcontext; /* per input tuple context */
 	TupleTableSlot *outerslot = NULL;
 	bool streaming = ((Agg *) aggstate->ss.ps.plan)->streaming;
-	bool tuple_remaining = true;
+	bool tuple_remaining = true;	
+
+	TupleTableSlots *resultSlots = &aggstate->as_resultSlots;
+	int batchSize = sizeof(resultSlots->slots)/sizeof(TupleTableSlot*);
 
 	Assert(hashtable);
 	AssertImply(!streaming, aggstate->hashaggstatus == HASHAGG_BEFORE_FIRST_PASS);
@@ -927,11 +930,7 @@ agg_hash_initial_pass(AggState *aggstate)
 		outerslot = fetch_input_tuple(aggstate);
 	}
 
-	TupleTableSlots resultSlots;
-	memset(resultSlots.slots,0,sizeof(resultSlots.slots));
-	resultSlots.handledCnt = 0;
-	resultSlots.slots[0] = outerslot;
-	resultSlots.slotNum = 1;
+
 	/*
 	 * Process outer-plan tuples, until we exhaust the outer plan.
 	 */
@@ -941,36 +940,42 @@ agg_hash_initial_pass(AggState *aggstate)
 	}else{
 		aggfunc = advance_aggregates;
 	}
+
+	if (aggstate->hashslot->tts_tupleDescriptor == NULL)
+	{
+		int size;
+		/* Initialize hashslot by cloning input slot. */
+		ExecSetSlotDescriptor(aggstate->hashslot, outerslot->tts_tupleDescriptor); 
+		ExecStoreAllNullTuple(aggstate->hashslot);
+
+		size = ((Agg *)aggstate->ss.ps.plan)->numCols * sizeof(HashKey);
+		
+		hashtable->hashkey_buf = (HashKey *)palloc0(size);
+		hashtable->mem_for_metadata += size;
+	}
+
 	while(true)
 	{
 		HashKey hashkey;
 		bool isNew;
 		HashAggEntry *entry;
 		bool bBreak =false;
-		for(int i=0;i<resultSlots.slotNum;++i){
-			outerslot = resultSlots.slots[i];
-			/* no more tuple. Done */
-			if (TupIsNull(outerslot))
-			{
+		int i;
+		//上个批次处理完毕
+		if(resultSlots->handledCnt >= resultSlots->slotNum){
+			resultSlots->slotNum = 0;
+			/* Read the next tuple */
+			//outerslot = fetch_input_tuple(aggstate);
+			fetch_input_tuples(aggstate,resultSlots);
+			if(resultSlots->slotNum==0){
 				tuple_remaining = false;
-				bBreak = true;
 				break;
 			}
+			resultSlots->handledCnt = 0;
+		}
 
-			if (aggstate->hashslot->tts_tupleDescriptor == NULL)
-			{
-				int size;
-								
-				/* Initialize hashslot by cloning input slot. */
-				ExecSetSlotDescriptor(aggstate->hashslot, outerslot->tts_tupleDescriptor); 
-				ExecStoreAllNullTuple(aggstate->hashslot);
-
-				size = ((Agg *)aggstate->ss.ps.plan)->numCols * sizeof(HashKey);
-				
-				hashtable->hashkey_buf = (HashKey *)palloc0(size);
-				hashtable->mem_for_metadata += size;
-			}
-
+		for(i=resultSlots->handledCnt;i<resultSlots->slotNum;++i){
+			outerslot = resultSlots->slots[i];
 			/* set up for advance_aggregates call */
 			tmpcontext->ecxt_outertuple = outerslot;
 
@@ -999,7 +1004,6 @@ agg_hash_initial_pass(AggState *aggstate)
 					Assert(tuple_remaining);
 					hashtable->prev_slot = outerslot;
 					/* Stream existing entries instead of spilling */
-					bBreak = true;
 					break;
 				}
 
@@ -1038,16 +1042,19 @@ agg_hash_initial_pass(AggState *aggstate)
 				Assert(tuple_remaining);
 				ExecClearTuple(aggstate->hashslot);
 				/* Pause and stream entries before reading the next tuple */
-				bBreak = true;
 				break;
 			}
 		}
-		if(bBreak){
+
+		resultSlots->handledCnt = i;
+		//未处理完批次，no space/streaming buttom
+		if(i<resultSlots->slotNum){
 			break;
 		}
-		/* Read the next tuple */
-		//outerslot = fetch_input_tuple(aggstate);
-		fetch_input_tuples(aggstate,&resultSlots);
+		if(resultSlots->slotNum<batchSize){
+			tuple_remaining = false;
+			break;
+		}
 	}
 
 	if (GET_TOTAL_USED_SIZE(hashtable) > hashtable->mem_used)

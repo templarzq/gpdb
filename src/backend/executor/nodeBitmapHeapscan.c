@@ -457,12 +457,12 @@ BitmapHeapNext(BitmapHeapScanState *node)
 		lp = PageGetItemId(dp, targoffset);
 		Assert(ItemIdIsNormal(lp));
 
-		scan->rs_ctup.t_data = (HeapTupleHeader) PageGetItem((Page) dp, lp);
-		scan->rs_ctup.t_len = ItemIdGetLength(lp);
+		scan->rs_pTup->t_data = (HeapTupleHeader) PageGetItem((Page) dp, lp);
+		scan->rs_pTup->t_len = ItemIdGetLength(lp);
 #if 0
 		scan->rs_ctup.t_tableOid = scan->rs_rd->rd_id;
 #endif
-		ItemPointerSet(&scan->rs_ctup.t_self, tbmres->blockno, targoffset);
+		ItemPointerSet(&scan->rs_pTup->t_self, tbmres->blockno, targoffset);
 
 		pgstat_count_heap_fetch(scan->rs_rd);
 
@@ -470,7 +470,7 @@ BitmapHeapNext(BitmapHeapScanState *node)
 		 * Set up the result slot to point to this tuple. Note that the slot
 		 * acquires a pin on the buffer.
 		 */
-		ExecStoreHeapTuple(&scan->rs_ctup,
+		ExecStoreHeapTuple(scan->rs_pTup,
 					   slot,
 					   scan->rs_cbuf,
 					   false);

@@ -307,6 +307,7 @@ initscan(HeapScanDesc scan, ScanKey key, bool keep_startblock)
 	ItemPointerSetInvalid(&scan->rs_ctup.t_self);
 	scan->rs_cbuf = InvalidBuffer;
 	scan->rs_cblock = InvalidBlockNumber;
+	scan->rs_pTup = &scan->rs_ctup;
 
 	/* page-at-a-time fields are always invalid when not rs_inited */
 
@@ -535,7 +536,7 @@ heapgettup(HeapScanDesc scan,
 		   int nkeys,
 		   ScanKey key)
 {
-	HeapTuple	tuple = &(scan->rs_ctup);
+	HeapTuple	tuple = scan->rs_pTup;
 	Snapshot	snapshot = scan->rs_snapshot;
 	bool		backward = ScanDirectionIsBackward(dir);
 	BlockNumber page;
@@ -840,7 +841,7 @@ heapgettup_pagemode(HeapScanDesc scan,
 					int nkeys,
 					ScanKey key)
 {
-	HeapTuple	tuple = &(scan->rs_ctup);
+	HeapTuple	tuple = scan->rs_pTup;
 	bool		backward = ScanDirectionIsBackward(dir);
 	BlockNumber page;
 	bool		finished;
@@ -2083,7 +2084,7 @@ heap_getnext(HeapScanDesc scan, ScanDirection direction)
 	else
 		heapgettup(scan, direction, scan->rs_nkeys, scan->rs_key);
 
-	if (scan->rs_ctup.t_data == NULL)
+	if (scan->rs_pTup->t_data == NULL)
 	{
 		HEAPDEBUG_2;			/* heap_getnext returning EOS */
 		return NULL;
@@ -2097,7 +2098,7 @@ heap_getnext(HeapScanDesc scan, ScanDirection direction)
 
 	pgstat_count_heap_getnext(scan->rs_rd);
 
-	return &(scan->rs_ctup);
+	return scan->rs_pTup;
 }
 
 /*

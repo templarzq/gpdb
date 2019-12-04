@@ -400,7 +400,7 @@ tablesample_getnext(SampleScanState *scanstate)
 {
 	TsmRoutine *tsm = scanstate->tsmroutine;
 	HeapScanDesc scan = scanstate->ss_currentScanDesc_heap;
-	HeapTuple	tuple = &(scan->rs_ctup);
+	HeapTuple	tuple = scan->rs_pTup;
 	Snapshot	snapshot = scan->rs_snapshot;
 	bool		pagemode = scan->rs_pageatatime;
 	BlockNumber blockno;
@@ -566,7 +566,7 @@ tablesample_getnext(SampleScanState *scanstate)
 	/* Count successfully-fetched tuples as heap fetches */
 	pgstat_count_heap_getnext(scan->rs_rd);
 
-	return &(scan->rs_ctup);
+	return scan->rs_pTup;
 }
 
 /*

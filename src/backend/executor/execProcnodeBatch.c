@@ -459,10 +459,11 @@ void ExecProcNodeBatch(PlanState *node,TupleTableSlots *resultSlots)
 				}
 			}
 	
-			for(int i=0;i<resultSlots->slotNum;++i){
-				result = resultSlots->slots[i];
-				if (node->instrument)
+			if (node->instrument){
+				for(int i=0;i<resultSlots->slotNum;++i){
+					result = resultSlots->slots[i];
 					InstrStopNode(node->instrument, TupIsNull(result) ? 0 : 1);
+				}
 			}
 			CheckSendPlanStateGpmonPkt(node);
 		}else{

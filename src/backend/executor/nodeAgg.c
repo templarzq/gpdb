@@ -466,7 +466,6 @@ void
 fetch_input_tuples(AggState *aggstate,TupleTableSlots* resultSlots)
 {
 	TupleTableSlot *slot;
-	bool bBreak = false;
 	resultSlots->slotNum = 0;
 
 	if (aggstate->sort_in)
@@ -487,11 +486,7 @@ fetch_input_tuples(AggState *aggstate,TupleTableSlots* resultSlots)
 	if (aggstate->sort_out){
 		for(int i=0;i<resultSlots->slotNum;i++){
 			slot = resultSlots->slots[i];
-			if(!TupIsNull(slot)){
-				tuplesort_puttupleslot(aggstate->sort_out, slot);
-			}else{
-				break;
-			}
+			tuplesort_puttupleslot(aggstate->sort_out, slot);
 		}
 	}
 	return;
@@ -1784,6 +1779,10 @@ ExecAgg(AggState *node)
 	 */
 	if (!node->agg_done)
 	{
+		TupleTableSlots *resultSlots = &node->as_resultSlots;
+		memset(resultSlots->slots,0,sizeof(resultSlots->slots));
+		resultSlots->handledCnt = 0;
+		resultSlots->slotNum = 0;
 		/* Dispatch based on strategy */
 		switch (node->phase->aggnode->aggstrategy)
 		{
@@ -1848,6 +1847,14 @@ agg_retrieve_direct(AggState *aggstate)
 	 * gset_lengths for the group we just completed (either by projecting a
 	 * row or by discarding it in the qual).
 	 */
+
+	TupleTableSlots *resultSlots = &aggstate->as_resultSlots;
+	bool bBreak = false;
+	int batchSize = sizeof(resultSlots->slots)/sizeof(TupleTableSlot*);
+	memset(resultSlots->slots,0,sizeof(resultSlots->slots));
+	resultSlots->handledCnt = 0;
+	resultSlots->slotNum = 0;
+
 	while (!aggstate->agg_done)
 	{
 		/*
@@ -2052,25 +2059,23 @@ agg_retrieve_direct(AggState *aggstate)
 					void (*aggfunc)(AggState *aggstate, AggStatePerGroup pergroup);
 					/* Reset per-input-tuple context after each tuple */
 					ResetExprContext(tmpcontext);
-					TupleTableSlots resultSlots;
-					memset(resultSlots.slots,0,sizeof(resultSlots.slots));
-					resultSlots.handledCnt = 0;
 					if (DO_AGGSPLIT_COMBINE(aggstate->aggsplit)){
 						aggfunc = combine_aggregates;
 					}else{
 						aggfunc = advance_aggregates;
 					}
+					aggfunc(aggstate, pergroup);
 
-					bool bBreak = false;
-					for (;!bBreak;)
+					for (;;)
 					{
-						resultSlots.slotNum = 0;
-						ExecProcNodeBatch(outerPlanState(aggstate),&resultSlots);
-				
-						for(int i=0;i<resultSlots.slotNum;++i){
-							aggfunc(aggstate, pergroup);
-							outerslot = resultSlots.slots[i];
-							if (TupIsNull(outerslot)){
+						int i = 0;
+						//上个批次处理完毕
+						if(resultSlots->handledCnt >= resultSlots->slotNum){
+							resultSlots->slotNum = 0;
+							ExecProcNodeBatch(outerPlanState(aggstate),resultSlots);
+							resultSlots->handledCnt = 0;
+							if(resultSlots->slotNum == 0){
+								//所有结果处理完毕
 								/* no more outer-plan tuples available */
 								if (hasGroupingSets)
 								{
@@ -2080,17 +2085,21 @@ agg_retrieve_direct(AggState *aggstate)
 								{
 									aggstate->agg_done = true;
 								}
-								bBreak = true;
 								break;
 							}
-							/* set up for next advance_aggregates call */
-							tmpcontext->ecxt_outertuple = outerslot;
-							/*
-							* If we are grouping, check whether we've crossed a group
-							* boundary.
-							*/
-							if (node->aggstrategy == AGG_SORTED)
-							{
+						}
+
+						if (node->aggstrategy == AGG_SORTED)
+						{
+							for(i=resultSlots->handledCnt;i<resultSlots->slotNum;++i){
+								outerslot = resultSlots->slots[i];
+								/* set up for next advance_aggregates call */
+								tmpcontext->ecxt_outertuple = outerslot;
+								/*
+								* If we are grouping, check whether we've crossed a group
+								* boundary.
+								*/
+								
 								if (!execTuplesMatch(firstSlot,
 													outerslot,
 													node->numCols,
@@ -2099,10 +2108,36 @@ agg_retrieve_direct(AggState *aggstate)
 													tmpcontext->ecxt_per_tuple_memory))
 								{
 									aggstate->grp_firstTuple = ExecCopySlotMemTuple(outerslot);
-									bBreak = true;
 									break;
 								}
+								aggfunc(aggstate, pergroup);
 							}
+						}else{
+							for(i=resultSlots->handledCnt;i<resultSlots->slotNum;++i){
+								outerslot = resultSlots->slots[i];
+								/* set up for next advance_aggregates call */
+								tmpcontext->ecxt_outertuple = outerslot;
+								aggfunc(aggstate, pergroup);
+							}
+						}
+
+						resultSlots->handledCnt = i;
+						//未处理完批次，跨group了
+						if(i<resultSlots->slotNum){
+							break;
+						}
+						//当前是最后一批
+						if(resultSlots->slotNum<batchSize){
+							/* no more outer-plan tuples available */
+							if (hasGroupingSets)
+							{
+								aggstate->input_done = true;
+							}
+							else
+							{
+								aggstate->agg_done = true;
+							}
+							break;
 						}
 					}
 				}else{

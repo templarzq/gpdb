@@ -479,7 +479,7 @@ systable_recheck_tuple(SysScanDesc sysscan, HeapTuple tup)
 		HeapScanDesc scan = sysscan->scan;
 
 		Assert(IsMVCCSnapshot(scan->rs_snapshot));
-		Assert(tup == &scan->rs_ctup);
+		Assert(tup == scan->rs_pTup);
 		Assert(BufferIsValid(scan->rs_cbuf));
 		/* must hold a buffer lock to call HeapTupleSatisfiesVisibility */
 		LockBuffer(scan->rs_cbuf, BUFFER_LOCK_SHARE);
