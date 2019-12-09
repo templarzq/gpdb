@@ -32,6 +32,7 @@
 #include "utils/resowner_private.h"
 #include "utils/snapmgr.h"
 #include "hash.h"
+#include "unistd.h"
 
 /*
  * All resource IDs managed by this code are required to fit into a Datum,
@@ -383,6 +384,11 @@ ResourceArrayRemove(ResourceArray *resarr, Datum value)
 
 	void* pVal = hash_get(resarr->hash,value);
 
+	// bool bWait = true;
+	// while(bWait){
+	// 	sleep(1);
+	// };
+
 	if(pVal){
 		ResItem* pItem = (ResItem*)pVal;
 		idx = pItem->idx;
@@ -409,6 +415,7 @@ ResourceArrayRemove(ResourceArray *resarr, Datum value)
 				lastval = resarr->itemsarr[resarr->lastidx];
 				resarr->pLastItem = (ResItem*)hash_get(resarr->hash,lastval);
 			}
+			return true;
 		}
 	}else{
 		return false;
