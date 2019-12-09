@@ -180,14 +180,17 @@ ExecSort(SortState *node)
 		/*
 		 * Scan the subplan and feed all the tuples to tuplesort.
 		 */
-		if(outerNode->type == T_SeqScan){
+		if(outerNode->type == T_SeqScanState){
 			TupleTableSlots resultSlots;
 			int batchSize = sizeof(resultSlots.slots)/sizeof(TupleTableSlot*);
 			bool bBreak = false;
-
 			memset(resultSlots.slots,0,sizeof(resultSlots.slots));
 			resultSlots.handledCnt = 0;
-			
+			// bool bWait = true;
+			// while(bWait){
+			// 	sleep(1);
+			// };
+
 			for (;;)
 			{
 				resultSlots.slotNum = 0;
@@ -417,7 +420,7 @@ void ExecSortBatch(SortState *node,TupleTableSlots* resultSlots)
 		TupleTableSlots tmpSlots;
 		memset(tmpSlots.slots,0,sizeof(tmpSlots.slots));
 		tmpSlots.handledCnt = 0;
-		if(outerNode->type == T_SeqScan){
+		if(outerNode->type == T_SeqScanState){
 			// bool bWait = true;
 			// while(bWait){
 			// 	sleep(1);

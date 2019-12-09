@@ -276,8 +276,8 @@ void ExecProcNodeBatch(PlanState *node,TupleTableSlots *resultSlots)
 				* scan nodes
 				*/
 			case T_SeqScanState:
-				result = ExecSeqScan((SeqScanState *)node);
-				//ExecScanBatch((ScanState *) node,resultSlots);
+				//result = ExecSeqScan((SeqScanState *)node);
+				ExecScanBatch((ScanState *) node,resultSlots);
 				break;
 
 				/*GPDB_95_MERGE_FIXME: Do we need DynamicSampleScan here?*/
@@ -448,8 +448,8 @@ void ExecProcNodeBatch(PlanState *node,TupleTableSlots *resultSlots)
 				break;
 		}
 
-		if(		//nodeTag(node) == T_SeqScanState||
-			 nodeTag(node)==T_SortState)
+		if( nodeTag(node) == T_SeqScanState ||
+			nodeTag(node)==T_SortState)
 		{
 			if(resultSlots->slotNum>0){
 				if(!TupIsNull(resultSlots->slots[resultSlots->slotNum-1])){

@@ -153,10 +153,10 @@ typedef struct TupleTableSlot
 
 typedef struct TupleTableSlots
 {
-	TupleTableSlot* slots[20480];	//当前批次的slot数量
+	TupleTableSlot* slots[2048];	//当前批次的slot数量
 	int  slotNum;					//已经取到的slot数量
 	int  handledCnt;				//已处理的数量
-	HeapTupleData htups[20480];		//heapTuple
+	HeapTupleData htups[2048];		//heapTuple
 } TupleTableSlots;
 
 #ifndef FRONTEND
