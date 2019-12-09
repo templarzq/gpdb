@@ -277,28 +277,6 @@ ResourceArrayAdd(ResourceArray *resarr, Datum value)
 	Assert(value != resarr->invalidval);
 	Assert(resarr->nitems < resarr->maxitems);
 
-	// if (RESARRAY_IS_ARRAY(resarr))
-	// {
-	// 	/* Append to linear array. */
-	// 	idx = resarr->nitems;
-	// 	resarr->lastidx = idx;
-	// 	resarr->itemsarr[idx] = value;
-	// 	resarr->nitems++;
-	// }
-	// else
-	// {
-	// 	/* Insert into first free slot at or after hash location. */
-	// 	uint32		mask = resarr->capacity - 1;
-
-	// 	idx = (uint32)(hash_any((void *) &value, sizeof(value))) & mask;
-	// 	for (;;)
-	// 	{
-	// 		if (resarr->itemsarr[idx] == resarr->invalidval)
-	// 			break;
-	// 		idx = (idx + 1) & mask;
-	// 	}
-	// }
-	// else{
 	idx = resarr->nitems;
 	void* pVal = hash_get(resarr->hash,value);
 	if(pVal == NULL){	//add new item in hash table
@@ -310,12 +288,9 @@ ResourceArrayAdd(ResourceArray *resarr, Datum value)
 		resarr->lastidx = idx;
 		resarr->itemsarr[idx] = value;
 		resarr->nitems++;
-	}else{		// add same item count
+	}else{		// add same item ref count
 		((ResItem*)pVal)->Cnt += 1;
 	}
-	// }	
-	
-
 }
 
 /*
@@ -334,65 +309,12 @@ ResourceArrayRemove(ResourceArray *resarr, Datum value)
 
 	Assert(value != resarr->invalidval);
 
-	/* Search through all items, but try lastidx first. */
-	// if (RESARRAY_IS_ARRAY(resarr))
-	// {
-	// 	if (lastidx < resarr->nitems &&
-	// 		resarr->itemsarr[lastidx] == value)
-	// 	{
-	// 		resarr->itemsarr[lastidx] = resarr->itemsarr[resarr->nitems - 1];
-	// 		resarr->nitems--;
-	// 		/* Update lastidx to make reverse-order removals fast. */
-	// 		resarr->lastidx = resarr->nitems - 1;
-	// 		return true;
-	// 	}
-	// 	for (i = 0; i < resarr->nitems; i++)
-	// 	{
-	// 		if (resarr->itemsarr[i] == value)
-	// 		{
-	// 			resarr->itemsarr[i] = resarr->itemsarr[resarr->nitems - 1];
-	// 			resarr->nitems--;
-	// 			/* Update lastidx to make reverse-order removals fast. */
-	// 			resarr->lastidx = resarr->nitems - 1;
-	// 			return true;
-	// 		}
-	// 	}
-	// }
-	// else
-	// {
-		// uint32		mask = resarr->capacity - 1;
-
-		// if (lastidx < resarr->capacity &&
-		// 	resarr->itemsarr[lastidx] == value)
-		// {
-		// 	resarr->itemsarr[lastidx] = resarr->invalidval;
-		// 	resarr->nitems--;
-		// 	return true;
-		// }
-		// idx = DatumGetUInt32(hash_any((void *) &value, sizeof(value))) & mask;
-		// for (i = 0; i < resarr->capacity; i++)
-		// {
-		// 	if (resarr->itemsarr[idx] == value)
-		// 	{
-		// 		resarr->itemsarr[idx] = resarr->invalidval;
-		// 		resarr->nitems--;
-		// 		return true;
-		// 	}
-		// 	idx = (idx + 1) & mask;
-		// }
-	// }
-
 	void* pVal = hash_get(resarr->hash,value);
-
-	// bool bWait = true;
-	// while(bWait){
-	// 	sleep(1);
-	// };
 
 	if(pVal){
 		ResItem* pItem = (ResItem*)pVal;
 		idx = pItem->idx;
-		if(pItem->Cnt>1){
+		if(pItem->Cnt>1){		// minus the ref count
 			pItem->Cnt --;
 			return true;
 		}else{
