@@ -12,16 +12,9 @@
  */
 
 inline void
-hash_set(hash_t *self, char *key, void *val) {
+hash_set(hash_t *self, long int key, void *val) {
   int ret;
-  khiter_t k = kh_put(ptr, self, key, &ret);
-  kh_value(self, k) = val;
-}
-
-inline void
-hash_set(hash_t *self, unsigned int64 key, void *val) {
-  int ret;
-  khiter_t k = kh_put(ptr, self, key, &ret);
+  khiter_t k = kh_put(i64, self, key, &ret);
   kh_value(self, k) = val;
 }
 
@@ -30,8 +23,8 @@ hash_set(hash_t *self, unsigned int64 key, void *val) {
  */
 
 inline void *
-hash_get(hash_t *self, char *key) {
-  khiter_t k = kh_get(ptr, self, key);
+hash_get(hash_t *self, long int key) {
+  khiter_t k = kh_get(i64, self, key);
   return k == kh_end(self) ? NULL : kh_value(self, k);
 }
 
@@ -40,8 +33,8 @@ hash_get(hash_t *self, char *key) {
  */
 
 inline int
-hash_has(hash_t *self, char *key) {
-  khiter_t k = kh_get(ptr, self, key);
+hash_has(hash_t *self, long int key) {
+  khiter_t k = kh_get(i64, self, key);
   return k != kh_end(self);
 }
 
@@ -50,9 +43,9 @@ hash_has(hash_t *self, char *key) {
  */
 
 void
-hash_del(hash_t *self, char *key) {
-  khiter_t k = kh_get(ptr, self, key);
-  kh_del(ptr, self, k);
+hash_del(hash_t *self, long int key) {
+  khiter_t k = kh_get(i64, self, key);
+  kh_del(i64, self, k);
 }
 
 // tests

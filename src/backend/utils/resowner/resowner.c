@@ -301,8 +301,7 @@ ResourceArrayAdd(ResourceArray *resarr, Datum value)
 	idx = resarr->nitems;
 	void* pVal = hash_get(resarr->hash,value);
 	if(pVal == NULL){	//add new item in hash table
-		ResItem* newitem = (ResItem *) MemoryContextAlloc(TopMemoryContext,
-											newcap * sizeof(ResItem));
+		ResItem* newitem = (ResItem *) MemoryContextAlloc(TopMemoryContext,sizeof(ResItem));
 		newitem->Cnt = 1;
 		newitem->idx = idx;
 		hash_set(resarr->hash, value, newitem);
@@ -391,12 +390,13 @@ ResourceArrayRemove(ResourceArray *resarr, Datum value)
 			pItem->Cnt --;
 			return true;
 		}else{
-			has_del(resarr->hash,value);
+			int64 lastval;
+			hash_del(resarr->hash,value);
 			pfree(pItem);
 
 			if(pVal != resarr->pLastItem){	//remove item
 				//move last item to deleted slot
-				int64 lastval = resarr->itemsarr[resarr->lastidx];
+				lastval = resarr->itemsarr[resarr->lastidx];
 				ResItem* pLastItem = (ResItem*)hash_get(resarr->hash,lastval);
 				resarr->itemsarr[idx] = lastval;
 				pLastItem->idx = idx;
@@ -465,7 +465,7 @@ ResourceArrayFree(ResourceArray *resarr)
 	}
 
 	if(resarr->hash){
-		hash_each(hash, {
+		hash_each(resarr->hash, {
 			if(val){
 				pfree((ResItem *)val);
 			}
