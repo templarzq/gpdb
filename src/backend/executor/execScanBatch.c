@@ -264,7 +264,7 @@ static void SeqNextBatch(SeqScanState *node)
 	{
 
 		HeapScanDesc scandesc = node->ss_currentScanDesc_heap;
-
+		
 		for(int i=0;i<batchSize;++i){
 			scandesc->rs_pTup = node->ss.ss_resultSlots.htups+i;
 			tuple = heap_getnext(scandesc, direction);
@@ -294,6 +294,7 @@ static void SeqNextBatch(SeqScanState *node)
 				break;
 			}
 		}
+		scandesc->rs_pTup = &scandesc->rs_ctup;
 	}
 	return;
 }

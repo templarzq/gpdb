@@ -203,6 +203,7 @@
 
 #include "cdb/cdbexplain.h"
 #include "cdb/cdbvars.h" /* mpp_hybrid_hash_agg */
+#include "unistd.h"
 
 #define IS_HASHAGG(aggstate) (((Agg *) (aggstate)->ss.ps.plan)->aggstrategy == AGG_HASHED)
 

@@ -38,6 +38,7 @@
 
 #include "cdb/cdbexplain.h"
 #include "cdb/cdbvars.h"
+#include <unistd.h>
 
 #define BUFFER_INCREMENT_SIZE 1024
 #define HHA_MSG_LVL DEBUG2
@@ -913,7 +914,6 @@ agg_hash_initial_pass(AggState *aggstate)
 	AssertImply(!streaming, aggstate->hashaggstatus == HASHAGG_BEFORE_FIRST_PASS);
 	elog(HHA_MSG_LVL,
 		 "HashAgg: initial pass -- beginning to load hash table");
-
 	/*
 	 * Check if an input tuple has been read, but not processed
 	 * because of lack of space before streaming the results
@@ -928,8 +928,11 @@ agg_hash_initial_pass(AggState *aggstate)
 	else
 	{
 		outerslot = fetch_input_tuple(aggstate);
+		if(TupIsNull(outerslot)){
+			tuple_remaining = false;
+			return tuple_remaining;
+		}
 	}
-
 
 	/*
 	 * Process outer-plan tuples, until we exhaust the outer plan.
