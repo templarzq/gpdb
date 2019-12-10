@@ -967,18 +967,17 @@ agg_hash_initial_pass(AggState *aggstate)
 		//上个批次处理完毕
 		if(resultSlots->handledCnt >= resultSlots->slotNum){
 			resultSlots->slotNum = 0;
-			/* Read the next tuple */
-			//outerslot = fetch_input_tuple(aggstate);
+			/* Read the next tuples */
 			fetch_input_tuples(aggstate,resultSlots);
-			if(resultSlots->slotNum==0){
-				tuple_remaining = false;
-				break;
-			}
 			resultSlots->handledCnt = 0;
 		}
 
 		for(i=resultSlots->handledCnt;i<resultSlots->slotNum;++i){
 			outerslot = resultSlots->slots[i];
+			if( TupIsNull(outerslot)){
+				tuple_remaining = false;
+				break;
+			}
 			/* set up for advance_aggregates call */
 			tmpcontext->ecxt_outertuple = outerslot;
 
@@ -1050,7 +1049,7 @@ agg_hash_initial_pass(AggState *aggstate)
 		}
 
 		resultSlots->handledCnt = i;
-		//未处理完批次，no space/streaming buttom
+		//全部处理完毕 或者未处理完批次，no space/streaming buttom
 		if(i<resultSlots->slotNum){
 			break;
 		}

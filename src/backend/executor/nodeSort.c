@@ -194,15 +194,16 @@ ExecSort(SortState *node)
 			for (;;)
 			{
 				resultSlots.slotNum = 0;
+				int i;
 				ExecProcNodeBatch(outerNode,&resultSlots);
-				if(resultSlots.slotNum == 0){
-					break;
-				}
-				for(int i=0;i<resultSlots.slotNum;++i){
+				for(i=0;i<resultSlots.slotNum;++i){
 					slot = resultSlots.slots[i];
+					if(TupIsNull(slot)){
+						break;
+					}
 					tuplesort_puttupleslot(tuplesortstate, slot);
 				}
-				if(resultSlots.slotNum<batchSize){
+				if(i < resultSlots.slotNum){
 					break;
 				}
 			}
@@ -428,15 +429,16 @@ void ExecSortBatch(SortState *node,TupleTableSlots* resultSlots)
 			for (;;)
 			{
 				tmpSlots.slotNum = 0;
+				int i;
 				ExecProcNodeBatch(outerNode,&tmpSlots);
-				if(tmpSlots.slotNum==0){
-					break;
-				}
-				for(int i=0;i<tmpSlots.slotNum;++i){
+				for(i=0;i<tmpSlots.slotNum;++i){
 					slot = tmpSlots.slots[i];
+					if(TupIsNull(slot)){
+						break;
+					}
 					tuplesort_puttupleslot(tuplesortstate, slot);
 				}
-				if(tmpSlots.slotNum<batchSize){
+				if(i < tmpSlots.slotNum){
 					break;
 				}
 			}

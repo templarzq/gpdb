@@ -291,6 +291,11 @@ static void SeqNextBatch(SeqScanState *node)
 				node->ss.ss_resultSlots.slots[i] = slot;
 				node->ss.ss_resultSlots.slotNum += 1;
 			} else {
+				slot = node->ss.ss_resultSlots.slots[i];
+				if(slot != NULL){
+					ExecClearTuple(slot);
+				}
+				node->ss.ss_resultSlots.slotNum += 1;
 				break;
 			}
 		}
@@ -366,15 +371,17 @@ ExecSeqScanBatch(ScanState *node,
 			ResetExprContext(econtext);
 			ExecScanFetchBatch(node, accessMtd, recheckMtd);
 			node->ss_resultSlots.handledCnt = 0;
-			if(node->ss_resultSlots.slotNum == 0){
-				//所有结果处理完毕
-				resultSlots->slotNum = 0;
-				return;
-			}
 		}
 
 		for(int i=node->ss_resultSlots.handledCnt;i<node->ss_resultSlots.slotNum;++i){
 			slot = node->ss_resultSlots.slots[i];
+			if(TupIsNull(slot)){
+				if(!TupIsNull(resultSlots->slots[resultRows])){	
+					ExecClearTuple(resultSlots->slots[resultRows]);
+				}
+				resultSlots->slotNum += 1;
+				return;
+			}
 			/*
 			* place the current tuple into the expr context
 			*/

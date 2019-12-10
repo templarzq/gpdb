@@ -2055,7 +2055,7 @@ agg_retrieve_direct(AggState *aggstate)
 				 */
 
 				if(outerPlanState(aggstate)->type == T_SeqScanState 
-					//|| outerPlanState(aggstate)->type == T_SortState
+					|| outerPlanState(aggstate)->type == T_SortState
 				){
 					void (*aggfunc)(AggState *aggstate, AggStatePerGroup pergroup);
 					/* Reset per-input-tuple context after each tuple */
@@ -2075,25 +2075,25 @@ agg_retrieve_direct(AggState *aggstate)
 							resultSlots->slotNum = 0;
 							ExecProcNodeBatch(outerPlanState(aggstate),resultSlots);
 							resultSlots->handledCnt = 0;
-							if(resultSlots->slotNum == 0){
-								//所有结果处理完毕
-								/* no more outer-plan tuples available */
-								if (hasGroupingSets)
-								{
-									aggstate->input_done = true;
-								}
-								else
-								{
-									aggstate->agg_done = true;
-								}
-								break;
-							}
 						}
 
 						if (node->aggstrategy == AGG_SORTED)
 						{
 							for(i=resultSlots->handledCnt;i<resultSlots->slotNum;++i){
 								outerslot = resultSlots->slots[i];
+								if(TupIsNull(outerslot)){
+									//所有结果处理完毕
+									/* no more outer-plan tuples available */
+									if (hasGroupingSets)
+									{
+										aggstate->input_done = true;
+									}
+									else
+									{
+										aggstate->agg_done = true;
+									}
+									break;
+								}
 								/* set up for next advance_aggregates call */
 								tmpcontext->ecxt_outertuple = outerslot;
 								/*
@@ -2116,6 +2116,19 @@ agg_retrieve_direct(AggState *aggstate)
 						}else{
 							for(i=resultSlots->handledCnt;i<resultSlots->slotNum;++i){
 								outerslot = resultSlots->slots[i];
+								if(TupIsNull(outerslot)){
+									//所有结果处理完毕
+									/* no more outer-plan tuples available */
+									if (hasGroupingSets)
+									{
+										aggstate->input_done = true;
+									}
+									else
+									{
+										aggstate->agg_done = true;
+									}
+									break;
+								}
 								/* set up for next advance_aggregates call */
 								tmpcontext->ecxt_outertuple = outerslot;
 								aggfunc(aggstate, pergroup);
@@ -2123,21 +2136,8 @@ agg_retrieve_direct(AggState *aggstate)
 						}
 
 						resultSlots->handledCnt = i;
-						//未处理完批次，跨group了
+						//全部处理完毕 或者 未处理完批次，跨group了 
 						if(i<resultSlots->slotNum){
-							break;
-						}
-						//当前是最后一批
-						if(resultSlots->slotNum<batchSize){
-							/* no more outer-plan tuples available */
-							if (hasGroupingSets)
-							{
-								aggstate->input_done = true;
-							}
-							else
-							{
-								aggstate->agg_done = true;
-							}
 							break;
 						}
 					}
