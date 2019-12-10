@@ -1054,10 +1054,6 @@ agg_hash_initial_pass(AggState *aggstate)
 		if(i<resultSlots->slotNum){
 			break;
 		}
-		if(resultSlots->slotNum<batchSize){
-			tuple_remaining = false;
-			break;
-		}
 	}
 
 	if (GET_TOTAL_USED_SIZE(hashtable) > hashtable->mem_used)

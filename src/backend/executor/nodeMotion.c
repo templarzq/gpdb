@@ -268,6 +268,11 @@ execMotionSender(MotionState *node)
 				(motion->motionType == MOTIONTYPE_EXPLICIT && motion->segidColIdx > 0));
 	Assert(node->ps.state->interconnect_context);
 
+	// bool bWait = true;
+	// while(bWait){
+	// 	sleep(1);
+	// };
+
 	while (!done)
 	{
 		/* grab TupleTableSlot from our child. */
