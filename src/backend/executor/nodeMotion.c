@@ -144,6 +144,143 @@ formatTuple(StringInfo buf, HeapTuple tup, TupleDesc tupdesc, Oid *outputFunArra
 #endif
 
 /* ----------------------------------------------------------------
+ *		ExecMotion Batch
+ * ----------------------------------------------------------------
+ */
+void
+ExecMotionBatch(MotionState *node,TupleTableSlots *resultSlots)
+{
+	Motion	   *motion = (Motion *) node->ps.plan;
+	int batchSize = sizeof(resultSlots->slots)/sizeof(TupleTableSlot*);
+	resultSlots->slotNum = 0;
+
+	/* sanity check */
+ 	if (node->stopRequested)
+ 		ereport(ERROR,
+ 				(errcode(ERRCODE_INTERNAL_ERROR),
+ 				 errmsg("unexpected internal error"),
+ 				 errmsg("Already stopped motion node is executed again, data will lost"),
+ 				 errhint("Likely motion node is incorrectly squelched earlier")));
+
+	/*
+	 * at the top here we basically decide: -- SENDER vs. RECEIVER and --
+	 * SORTED vs. UNSORTED
+	 */
+	if (node->mstype == MOTIONSTATE_RECV)
+	{
+		TupleTableSlot *tuple, *pOldTuple;
+#ifdef MEASURE_MOTION_TIME
+		struct timeval startTime;
+		struct timeval stopTime;
+
+		gettimeofday(&startTime, NULL);
+#endif
+
+		if (node->ps.state->active_recv_id >= 0)
+		{
+			if (node->ps.state->active_recv_id != motion->motionID)
+			{
+				/*
+				 * See motion_sanity_walker() for details on how a deadlock
+				 * may occur.
+				 */
+				elog(LOG, "DEADLOCK HAZARD: Updating active_motion_id from %d to %d",
+					 node->ps.state->active_recv_id, motion->motionID);
+				node->ps.state->active_recv_id = motion->motionID;
+			}
+		}
+		else
+			node->ps.state->active_recv_id = motion->motionID;
+
+		/*
+		 * We tell the upper node as if this was the end of tuple stream if
+		 * query-finish is requested.  Unlike other nodes, we skipped this
+		 * check in ExecProc because this node in sender mode should send EoS
+		 * to the receiver side, but the receiver side can simply stop
+		 * processing the stream.  The sender side of this stream could still
+		 * be sending more tuples, but this slice will eventually clean up the
+		 * executor and eventually Stop message will be delivered to the
+		 * sender side.
+		 */
+		if (QueryFinishPending){
+			node->ps.state->active_recv_id = -1;
+			return;
+		}
+	
+		pOldTuple = node->ps.ps_ResultTupleSlot;
+
+		if (motion->sendSorted){
+			for(int i=0;i<batchSize;++i){
+				if(resultSlots->slots[i]==NULL){
+						tuple = ExecInitExtraTupleSlot(node->ps.state);
+						ExecSetSlotDescriptor(tuple, pOldTuple->tts_tupleDescriptor); 
+				}else{
+					tuple = resultSlots->slots[i];
+				}
+				node->ps.ps_ResultTupleSlot = tuple;
+				tuple = execMotionSortedReceiver(node);
+				if(TupIsNull(tuple)){
+					node->ps.state->active_recv_id = -1;
+					break;
+				}
+				resultSlots->slots[i] = tuple;
+				resultSlots->slotNum += 1;
+			}
+		}
+		else{
+			for(int i=0;i<batchSize;++i){
+				if(resultSlots->slots[i]==NULL){
+						tuple = ExecInitExtraTupleSlot(node->ps.state);
+						ExecSetSlotDescriptor(tuple, pOldTuple->tts_tupleDescriptor); 
+				}else{
+					tuple = resultSlots->slots[i];
+				}
+				node->ps.ps_ResultTupleSlot = tuple;
+				tuple = execMotionUnsortedReceiver(node);
+				if(TupIsNull(tuple)||QueryFinishPending){
+					node->ps.state->active_recv_id = -1;
+					break;
+				}
+				resultSlots->slots[i] = tuple;
+				resultSlots->slotNum += 1;
+			}
+		}
+			
+		node->ps.ps_ResultTupleSlot = pOldTuple;
+
+#ifdef MEASURE_MOTION_TIME
+		gettimeofday(&stopTime, NULL);
+
+		node->motionTime.tv_sec += stopTime.tv_sec - startTime.tv_sec;
+		node->motionTime.tv_usec += stopTime.tv_usec - startTime.tv_usec;
+
+		while (node->motionTime.tv_usec < 0)
+		{
+			node->motionTime.tv_usec += 1000000;
+			node->motionTime.tv_sec--;
+		}
+
+		while (node->motionTime.tv_usec >= 1000000)
+		{
+			node->motionTime.tv_usec -= 1000000;
+			node->motionTime.tv_sec++;
+		}
+#endif
+		return;
+	}
+	else if (node->mstype == MOTIONSTATE_SEND)
+	{
+		execMotionSender(node);
+		return;
+	}
+	else
+	{
+		elog(ERROR, "cannot execute inactive Motion");
+		return ;
+	}
+}
+
+/* ----------------------------------------------------------------
  *		ExecMotion
  * ----------------------------------------------------------------
  */

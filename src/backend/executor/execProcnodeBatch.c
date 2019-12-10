@@ -411,7 +411,8 @@ void ExecProcNodeBatch(PlanState *node,TupleTableSlots *resultSlots)
 				break;
 
 			case T_MotionState:
-				result = ExecMotion((MotionState *) node);
+				//result = ExecMotion((MotionState *) node);
+				ExecMotionBatch((MotionState *) node,resultSlots);
 				break;
 
 			case T_ShareInputScanState:
@@ -449,7 +450,9 @@ void ExecProcNodeBatch(PlanState *node,TupleTableSlots *resultSlots)
 		}
 
 		if( nodeTag(node) == T_SeqScanState ||
-			nodeTag(node)==T_SortState)
+			nodeTag(node)==T_SortState ||
+			nodeTag(node)==T_MotionState
+			)
 		{
 			if(resultSlots->slotNum>0){
 				if(!TupIsNull(resultSlots->slots[resultSlots->slotNum-1])){

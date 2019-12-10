@@ -19,6 +19,7 @@
 
 extern MotionState *ExecInitMotion(Motion *node, EState *estate, int eflags);
 extern TupleTableSlot *ExecMotion(MotionState *node);
+extern void ExecMotionBatch(MotionState *node,TupleTableSlots *resultSlots);
 extern void ExecEndMotion(MotionState *node);
 extern void ExecReScanMotion(MotionState *node);
 
