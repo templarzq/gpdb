@@ -363,6 +363,7 @@ ExecSeqScanBatch(ScanState *node,
 		//上个批次处理完毕
 		if(node->ss_resultSlots.handledCnt >= node->ss_resultSlots.slotNum){
 			node->ss_resultSlots.slotNum = 0;
+			ResetExprContext(econtext);
 			ExecScanFetchBatch(node, accessMtd, recheckMtd);
 			node->ss_resultSlots.handledCnt = 0;
 			if(node->ss_resultSlots.slotNum == 0){
