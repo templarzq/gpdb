@@ -449,9 +449,9 @@ void ExecProcNodeBatch(PlanState *node,TupleTableSlots *resultSlots)
 				break;
 		}
 
-		if( nodeTag(node) == T_SeqScanState ||
-			nodeTag(node)==T_SortState ||
-			nodeTag(node)==T_MotionState
+		if( nodeTag(node) == T_SeqScanState 
+			|| nodeTag(node)==T_SortState
+			|| nodeTag(node)==T_MotionState
 			)
 		{
 			if(resultSlots->slotNum>0){
@@ -470,10 +470,10 @@ void ExecProcNodeBatch(PlanState *node,TupleTableSlots *resultSlots)
 			}
 			CheckSendPlanStateGpmonPkt(node);
 		}else{
-			resultSlots->slots[0] = result;
-			resultSlots->slotNum = 1;
 			if (!TupIsNull(result))
 			{
+				resultSlots->slots[0] = result;
+				resultSlots->slotNum = 1;
 				Gpmon_Incr_Rows_Out(&node->gpmon_pkt);
 				CheckSendPlanStateGpmonPkt(node);
 			}

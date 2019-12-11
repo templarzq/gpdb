@@ -219,87 +219,84 @@ static void SeqNextBatch(SeqScanState *node)
 														   estate->es_snapshot,
 														   0, NULL);
 		}
+		node->ss.ss_resultSlots.bScanEnd = false;
 	}
 
 	/*
 	* get the next tuple from the table
 	*/
-	if (node->ss_currentScanDesc_ao)
-	{
-		for(int i=0;i<batchSize;++i){
-			slot = node->ss.ss_resultSlots.slots[i];
-			if(slot==NULL){
-				slot = ExecInitExtraTupleSlot(estate);
-				ExecSetSlotDescriptor(slot, node->ss.ss_ScanTupleSlot->tts_tupleDescriptor);
-			}
-			appendonly_getnext(node->ss_currentScanDesc_ao, direction, slot);
-			if(TupIsNull(slot)){
-				break;
-			}else{
-				node->ss.ss_resultSlots.slots[i] = slot;
-				node->ss.ss_resultSlots.slotNum += 1;
-			}
-		}
-	}
-	else if (node->ss_currentScanDesc_aocs)
-	{
-		for(int i=0;i<batchSize;++i){
-			slot = node->ss.ss_resultSlots.slots[i];
-			if(slot==NULL){
-				slot = ExecInitExtraTupleSlot(estate);
-				ExecSetSlotDescriptor(slot, node->ss.ss_ScanTupleSlot->tts_tupleDescriptor);
-			}
-			
-			aocs_getnext(node->ss_currentScanDesc_aocs, direction, slot);
-			
-			if(TupIsNull(slot)){
-				break;
-			}else{
-				node->ss.ss_resultSlots.slots[i] = slot;
-				node->ss.ss_resultSlots.slotNum += 1;
-			}
-		}
-	}
-	else
-	{
-
-		HeapScanDesc scandesc = node->ss_currentScanDesc_heap;
-		
-		for(int i=0;i<batchSize;++i){
-			scandesc->rs_pTup = node->ss.ss_resultSlots.htups+i;
-			tuple = heap_getnext(scandesc, direction);
-			/*
-			* save the tuple and the buffer returned to us by the access methods in
-			* our scan tuple slot and return the slot.  Note: we pass 'false' because
-			* tuples returned by heap_getnext() are pointers onto disk pages and were
-			* not created with palloc() and so should not be pfree()'d.  Note also
-			* that ExecStoreTuple will increment the refcount of the buffer; the
-			* refcount will not be dropped until the tuple table slot is cleared.
-			*/
-			if (tuple){
+	if(!node->ss.ss_resultSlots.bScanEnd){
+		if (node->ss_currentScanDesc_ao)
+		{
+			for(int i=0;i<batchSize;++i){
 				slot = node->ss.ss_resultSlots.slots[i];
-				if(slot == NULL){
+				if(slot==NULL){
 					slot = ExecInitExtraTupleSlot(estate);
 					ExecSetSlotDescriptor(slot, node->ss.ss_ScanTupleSlot->tts_tupleDescriptor);
-					TupClearShouldFree(slot);
 				}
-				slot = ExecStoreHeapTuple( tuple,	/* tuple to store */
-									slot,	/* slot to store in */
-									scandesc->rs_cbuf,		/* buffer associated with this
-																* tuple */
-									false);	/* don't pfree this pointer */
-				node->ss.ss_resultSlots.slots[i] = slot;
-				node->ss.ss_resultSlots.slotNum += 1;
-			} else {
-				slot = node->ss.ss_resultSlots.slots[i];
-				if(slot != NULL){
-					ExecClearTuple(slot);
+				appendonly_getnext(node->ss_currentScanDesc_ao, direction, slot);
+				if(TupIsNull(slot)){
+					break;
+				}else{
+					node->ss.ss_resultSlots.slots[i] = slot;
+					node->ss.ss_resultSlots.slotNum += 1;
 				}
-				node->ss.ss_resultSlots.slotNum += 1;
-				break;
 			}
 		}
-		scandesc->rs_pTup = &scandesc->rs_ctup;
+		else if (node->ss_currentScanDesc_aocs)
+		{
+			for(int i=0;i<batchSize;++i){
+				slot = node->ss.ss_resultSlots.slots[i];
+				if(slot==NULL){
+					slot = ExecInitExtraTupleSlot(estate);
+					ExecSetSlotDescriptor(slot, node->ss.ss_ScanTupleSlot->tts_tupleDescriptor);
+				}
+				
+				aocs_getnext(node->ss_currentScanDesc_aocs, direction, slot);
+				
+				if(TupIsNull(slot)){
+					break;
+				}else{
+					node->ss.ss_resultSlots.slots[i] = slot;
+					node->ss.ss_resultSlots.slotNum += 1;
+				}
+			}
+		}
+		else
+		{
+			HeapScanDesc scandesc = node->ss_currentScanDesc_heap;
+			for(int i=0;i<batchSize;++i){
+				scandesc->rs_pTup = node->ss.ss_resultSlots.htups+i;
+				tuple = heap_getnext(scandesc, direction);
+				/*
+				* save the tuple and the buffer returned to us by the access methods in
+				* our scan tuple slot and return the slot.  Note: we pass 'false' because
+				* tuples returned by heap_getnext() are pointers onto disk pages and were
+				* not created with palloc() and so should not be pfree()'d.  Note also
+				* that ExecStoreTuple will increment the refcount of the buffer; the
+				* refcount will not be dropped until the tuple table slot is cleared.
+				*/
+				if (tuple){
+					slot = node->ss.ss_resultSlots.slots[i];
+					if(slot == NULL){
+						slot = ExecInitExtraTupleSlot(estate);
+						ExecSetSlotDescriptor(slot, node->ss.ss_ScanTupleSlot->tts_tupleDescriptor);
+						TupClearShouldFree(slot);
+					}
+					slot = ExecStoreHeapTuple( tuple,	/* tuple to store */
+										slot,	/* slot to store in */
+										scandesc->rs_cbuf,		/* buffer associated with this
+																	* tuple */
+										false);	/* don't pfree this pointer */
+					node->ss.ss_resultSlots.slots[i] = slot;
+					node->ss.ss_resultSlots.slotNum += 1;
+				} else {
+					node->ss.ss_resultSlots.bScanEnd = true;
+					break;
+				}
+			}
+			scandesc->rs_pTup = &scandesc->rs_ctup;
+		}
 	}
 	return;
 }
@@ -329,11 +326,6 @@ ExecSeqScanBatch(ScanState *node,
 	qual = node->ps.qual;
 	projInfo = node->ps.ps_ProjInfo;
 	econtext = node->ps.ps_ExprContext;
-
-	// bool bWait = true;
-	// while(bWait){
-	// 	sleep(1);
-	// };
 
 	/*
 	* Reset per-tuple memory context to free any expression evaluation
@@ -371,17 +363,13 @@ ExecSeqScanBatch(ScanState *node,
 			ResetExprContext(econtext);
 			ExecScanFetchBatch(node, accessMtd, recheckMtd);
 			node->ss_resultSlots.handledCnt = 0;
+			if(node->ss_resultSlots.slotNum == 0){
+				return;
+			}
 		}
 
 		for(int i=node->ss_resultSlots.handledCnt;i<node->ss_resultSlots.slotNum;++i){
 			slot = node->ss_resultSlots.slots[i];
-			if(TupIsNull(slot)){
-				if(!TupIsNull(resultSlots->slots[resultRows])){	
-					ExecClearTuple(resultSlots->slots[resultRows]);
-				}
-				resultSlots->slotNum += 1;
-				return;
-			}
 			/*
 			* place the current tuple into the expr context
 			*/
@@ -448,9 +436,6 @@ ExecSeqScanBatch(ScanState *node,
 				InstrCountFiltered1(node, 1);
 				node->ss_resultSlots.handledCnt++;
 			}
-		}
-		if(node->ss_resultSlots.slotNum<batchSize){
-			return ;
 		}
 	}
 }

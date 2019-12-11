@@ -186,25 +186,17 @@ ExecSort(SortState *node)
 			bool bBreak = false;
 			memset(resultSlots.slots,0,sizeof(resultSlots.slots));
 			resultSlots.handledCnt = 0;
-			// bool bWait = true;
-			// while(bWait){
-			// 	sleep(1);
-			// };
 
 			for (;;)
 			{
 				resultSlots.slotNum = 0;
-				int i;
 				ExecProcNodeBatch(outerNode,&resultSlots);
-				for(i=0;i<resultSlots.slotNum;++i){
-					slot = resultSlots.slots[i];
-					if(TupIsNull(slot)){
-						break;
-					}
-					tuplesort_puttupleslot(tuplesortstate, slot);
-				}
-				if(i < resultSlots.slotNum){
+				if(resultSlots.slotNum == 0){
 					break;
+				}
+				for(int i=0;i<resultSlots.slotNum;++i){
+					slot = resultSlots.slots[i];
+					tuplesort_puttupleslot(tuplesortstate, slot);
 				}
 			}
 		}else{
@@ -422,24 +414,16 @@ void ExecSortBatch(SortState *node,TupleTableSlots* resultSlots)
 		memset(tmpSlots.slots,0,sizeof(tmpSlots.slots));
 		tmpSlots.handledCnt = 0;
 		if(outerNode->type == T_SeqScanState){
-			// bool bWait = true;
-			// while(bWait){
-			// 	sleep(1);
-			// };
 			for (;;)
 			{
 				tmpSlots.slotNum = 0;
-				int i;
 				ExecProcNodeBatch(outerNode,&tmpSlots);
-				for(i=0;i<tmpSlots.slotNum;++i){
-					slot = tmpSlots.slots[i];
-					if(TupIsNull(slot)){
-						break;
-					}
-					tuplesort_puttupleslot(tuplesortstate, slot);
-				}
-				if(i < tmpSlots.slotNum){
+				if(tmpSlots.slotNum ==0){
 					break;
+				}
+				for(int i=0;i<tmpSlots.slotNum;++i){
+					slot = tmpSlots.slots[i];
+					tuplesort_puttupleslot(tuplesortstate, slot);
 				}
 			}
 		}else{
@@ -519,11 +503,13 @@ void ExecSortBatch(SortState *node,TupleTableSlots* resultSlots)
 		(void) tuplesort_gettupleslot(tuplesortstate,
 							ScanDirectionIsForward(dir),
 							slot, NULL);
-		if (TupIsNull(slot) && !node->delayEagerFree)
-		{
-			ExecEagerFreeSort(node);
+		if (TupIsNull(slot)){
+			if(!node->delayEagerFree){
+				ExecEagerFreeSort(node);
+			}
 			return ;
 		}
+		resultSlots->slots[i] = slot;
 		resultSlots->slotNum += 1;
 	}
 

@@ -157,6 +157,7 @@ typedef struct TupleTableSlots
 	int  slotNum;					//已经取到的slot数量
 	int  handledCnt;				//已处理的数量
 	HeapTupleData htups[2048];		//heapTuple
+	bool bScanEnd;
 } TupleTableSlots;
 
 #ifndef FRONTEND

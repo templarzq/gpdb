@@ -3093,6 +3093,9 @@ ExecutePlan(EState *estate,
 				resultSlots.slotNum = 0;
 				ExecProcNodeBatch(planstate,&resultSlots);
 				resultSlots.handledCnt = 0;
+				if(resultSlots.slotNum == 0){
+					break;
+				}
 			}
 			
 			bool bBreak = false;
