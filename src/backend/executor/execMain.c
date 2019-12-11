@@ -3070,11 +3070,6 @@ ExecutePlan(EState *estate,
 	/*
 	 * Loop until we've processed the proper number of tuples from the plan.
 	 */
-	// bool bWait = true;
-	// while(bWait){
-	// 	sleep(1);
-	// };
-	// if (false){
 	if (operation == CMD_SELECT){
 		TupleTableSlots resultSlots;
 		memset(resultSlots.slots,0,sizeof(resultSlots.slots));
