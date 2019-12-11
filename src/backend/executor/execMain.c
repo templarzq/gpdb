@@ -3091,22 +3091,10 @@ ExecutePlan(EState *estate,
 			*/
 			if(resultSlots.handledCnt>=resultSlots.slotNum){
 				resultSlots.slotNum = 0;
+				ResetPerTupleExprContext(estate);
 				ExecProcNodeBatch(planstate,&resultSlots);
 				resultSlots.handledCnt = 0;
 				if(resultSlots.slotNum == 0){
-					break;
-				}
-			}
-			
-			bool bBreak = false;
-			for(int i=resultSlots.handledCnt;i<resultSlots.slotNum;++i){
-				slot = resultSlots.slots[i];
-				/*
-				* if the tuple is null, then we assume there is nothing more to
-				* process so we just end the loop...
-				*/
-				if (TupIsNull(slot))
-				{
 					/*
 					* We got end-of-stream. We need to mark it since with a cursor
 					* end-of-stream will only be received with the fetch that
@@ -3116,10 +3104,13 @@ ExecutePlan(EState *estate,
 					estate->es_got_eos = true;
 					/* Allow nodes to release or shut down resources. */
 					(void) ExecShutdownNode(planstate);
-					bBreak = true;
 					break;
 				}
-
+			}
+			
+			bool bBreak = false;
+			for(int i=resultSlots.handledCnt;i<resultSlots.slotNum;++i){
+				slot = resultSlots.slots[i];
 				/*
 				* If we have a junk filter, then project a new tuple with the junk
 				* removed.
@@ -3264,8 +3255,10 @@ ExecutePlan(EState *estate,
 			* means no limit.
 			*/
 			current_tuple_count++;
-			if (numberTuples && numberTuples == current_tuple_count)
+			if (numberTuples && numberTuples == current_tuple_count){
 				break;
+			}
+				
 		}
 	}
 	

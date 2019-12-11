@@ -504,9 +504,6 @@ void ExecSortBatch(SortState *node,TupleTableSlots* resultSlots)
 							ScanDirectionIsForward(dir),
 							slot, NULL);
 		if (TupIsNull(slot)){
-			if(!node->delayEagerFree){
-				ExecEagerFreeSort(node);
-			}
 			return ;
 		}
 		resultSlots->slots[i] = slot;
