@@ -226,40 +226,41 @@ ResourceArrayEnlarge(ResourceArray *resarr)
 	if (resarr->nitems < resarr->maxitems)
 		return;					/* no work needed */
 
+
 	olditemsarr = resarr->itemsarr;
 	oldcap = resarr->capacity;
 
-	/* Double the capacity of the array (capacity must stay a power of 2!) */
+	// /* Double the capacity of the array (capacity must stay a power of 2!) */
 	newcap = (oldcap > 0) ? oldcap * 2 : RESARRAY_INIT_SIZE;
-	newitemsarr = (Datum *) MemoryContextAlloc(TopMemoryContext,
-											   newcap * sizeof(Datum));
-	for (i = 0; i < newcap; i++)
-		newitemsarr[i] = resarr->invalidval;
+	// newitemsarr = (Datum *) MemoryContextAlloc(TopMemoryContext,
+	// 										   newcap * sizeof(Datum));
+	// for (i = 0; i < newcap; i++)
+	// 	newitemsarr[i] = resarr->invalidval;
 
-	/* We assume we can't fail below this point, so OK to scribble on resarr */
-	resarr->itemsarr = newitemsarr;
+	// /* We assume we can't fail below this point, so OK to scribble on resarr */
+	// resarr->itemsarr = newitemsarr;
 	resarr->capacity = newcap;
-	resarr->maxitems = RESARRAY_MAX_ITEMS(newcap);
-	resarr->nitems = 0;
+ 	resarr->maxitems = RESARRAY_MAX_ITEMS(newcap);
+	// resarr->nitems = 0;
 
-	if (olditemsarr != NULL)
-	{
-		/*
-		 * Transfer any pre-existing entries into the new array; they don't
-		 * necessarily go where they were before, so this simple logic is the
-		 * best way.  Note that if we were managing the set as a simple array,
-		 * the entries after nitems are garbage, but that shouldn't matter
-		 * because we won't get here unless nitems was equal to oldcap.
-		 */
-		for (i = 0; i < oldcap; i++)
-		{
-			if (olditemsarr[i] != resarr->invalidval)
-				ResourceArrayAdd(resarr, olditemsarr[i]);
-		}
+	// if (olditemsarr != NULL)
+	// {
+	// 	/*
+	// 	 * Transfer any pre-existing entries into the new array; they don't
+	// 	 * necessarily go where they were before, so this simple logic is the
+	// 	 * best way.  Note that if we were managing the set as a simple array,
+	// 	 * the entries after nitems are garbage, but that shouldn't matter
+	// 	 * because we won't get here unless nitems was equal to oldcap.
+	// 	 */
+	// 	for (i = 0; i < oldcap; i++)
+	// 	{
+	// 		if (olditemsarr[i] != resarr->invalidval)
+	// 			ResourceArrayAdd(resarr, olditemsarr[i]);
+	// 	}
 
-		/* And release old array. */
-		pfree(olditemsarr);
-	}
+	// 	/* And release old array. */
+	// 	pfree(olditemsarr);
+	// }
 
 	Assert(resarr->nitems < resarr->maxitems);
 }
@@ -276,17 +277,12 @@ ResourceArrayAdd(ResourceArray *resarr, Datum value)
 
 	Assert(value != resarr->invalidval);
 	Assert(resarr->nitems < resarr->maxitems);
-
 	idx = resarr->nitems;
 	void* pVal = hash_get(resarr->hash,value);
 	if(pVal == NULL){	//add new item in hash table
 		ResItem* newitem = (ResItem *) MemoryContextAlloc(TopMemoryContext,sizeof(ResItem));
 		newitem->Cnt = 1;
-		newitem->idx = idx;
 		hash_set(resarr->hash, value, newitem);
-		resarr->pLastItem = newitem;
-		resarr->lastidx = idx;
-		resarr->itemsarr[idx] = value;
 		resarr->nitems++;
 	}else{		// add same item ref count
 		((ResItem*)pVal)->Cnt += 1;
@@ -311,34 +307,16 @@ ResourceArrayRemove(ResourceArray *resarr, Datum value)
 
 	void* pVal = hash_get(resarr->hash,value);
 
-	if(pVal){
+	if(pVal!=NULL){
 		ResItem* pItem = (ResItem*)pVal;
-		idx = pItem->idx;
 		if(pItem->Cnt>1){		// minus the ref count
-			pItem->Cnt --;
-			return true;
+			pItem->Cnt -= 1;
 		}else{
-			int64 lastval;
 			hash_del(resarr->hash,value);
 			pfree(pItem);
-
-			if(pVal != resarr->pLastItem){	//remove item
-				//move last item to deleted slot
-				lastval = resarr->itemsarr[resarr->lastidx];
-				ResItem* pLastItem = (ResItem*)hash_get(resarr->hash,lastval);
-				resarr->itemsarr[idx] = lastval;
-				pLastItem->idx = idx;
-			}
-
 			resarr->nitems--;
-			resarr->lastidx--;
-			//set new last item
-			if(resarr->nitems>0){
-				lastval = resarr->itemsarr[resarr->lastidx];
-				resarr->pLastItem = (ResItem*)hash_get(resarr->hash,lastval);
-			}
-			return true;
 		}
+		return true;
 	}else{
 		return false;
 	}
@@ -357,30 +335,34 @@ ResourceArrayRemove(ResourceArray *resarr, Datum value)
 static bool
 ResourceArrayGetAny(ResourceArray *resarr, Datum *value)
 {
-	if (resarr->nitems == 0)
+	if (resarr->nitems == 0 )
 		return false;
 
-	if (RESARRAY_IS_ARRAY(resarr))
-	{
-		/* Linear array: just return the first element. */
-		resarr->lastidx = 0;
-	}
-	else
-	{
-		/* Hash: search forward from wherever we were last. */
-		uint32		mask = resarr->capacity - 1;
+	// if (RESARRAY_IS_ARRAY(resarr))
+	// {
+	// 	/* Linear array: just return the first element. */
+	// 	resarr->lastidx = 0;
+	// }
+	// else
+	// {
+	// 	/* Hash: search forward from wherever we were last. */
+	// 	uint32		mask = resarr->capacity - 1;
 
-		for (;;)
-		{
-			resarr->lastidx &= mask;
-			if (resarr->itemsarr[resarr->lastidx] != resarr->invalidval)
-				break;
-			resarr->lastidx++;
-		}
+	// 	for (;;)
+	// 	{
+	// 		resarr->lastidx &= mask;
+	// 		if (resarr->itemsarr[resarr->lastidx] != resarr->invalidval)
+	// 			break;
+	// 		resarr->lastidx++;
+	// 	}
+	// }
+	void * pVal = hash_get_begin_key(resarr->hash);
+	if(pVal){
+		*value = *((Datum*)pVal);
+		return true;
+	}else{
+		return false;
 	}
-
-	*value = resarr->itemsarr[resarr->lastidx];
-	return true;
 }
 
 /*

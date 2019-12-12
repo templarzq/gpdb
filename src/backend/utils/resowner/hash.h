@@ -96,6 +96,12 @@ hash_set(hash_t *self, long int key, void *val);
 void *
 hash_get(hash_t *self, long int key);
 
+void *
+hash_get_begin(hash_t *self);
+
+long int *
+hash_get_begin_key(hash_t *self);
+
 int
 hash_has(hash_t *self, long int key);
 

@@ -28,6 +28,32 @@ hash_get(hash_t *self, long int key) {
   return k == kh_end(self) ? NULL : kh_value(self, k);
 }
 
+
+/*
+ * Get hash `key`, or NULL.
+ */
+
+inline void *
+hash_get_begin(hash_t *self) {
+  khiter_t k;
+  for (k = kh_begin(self); k != kh_end(self); ++k){
+    if (kh_exist(self, k)) {
+      return kh_value(self, k);
+    }
+  }
+  return NULL;     
+}
+
+inline long int*
+hash_get_begin_key(hash_t *self) {
+  khiter_t k;
+  for (k = kh_begin(self); k != kh_end(self); ++k){
+    if (kh_exist(self, k)) {
+      return &kh_key(self, k);
+    }
+  }
+  return NULL;
+}
 /*
  * Check if hash `key` exists.
  */
