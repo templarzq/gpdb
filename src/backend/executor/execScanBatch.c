@@ -229,6 +229,7 @@ static void SeqNextBatch(SeqScanState *node)
 		if (node->ss_currentScanDesc_ao)
 		{
 			for(int i=0;i<batchSize;++i){
+				scandesc->rs_pTup = node->ss.ss_resultSlots.htups+i;
 				slot = node->ss.ss_resultSlots.slots[i];
 				if(slot==NULL){
 					slot = ExecInitExtraTupleSlot(estate);
@@ -242,10 +243,12 @@ static void SeqNextBatch(SeqScanState *node)
 					node->ss.ss_resultSlots.slotNum += 1;
 				}
 			}
+			scandesc->rs_pTup = &scandesc->rs_ctup;
 		}
 		else if (node->ss_currentScanDesc_aocs)
 		{
 			for(int i=0;i<batchSize;++i){
+				scandesc->rs_pTup = node->ss.ss_resultSlots.htups+i;
 				slot = node->ss.ss_resultSlots.slots[i];
 				if(slot==NULL){
 					slot = ExecInitExtraTupleSlot(estate);
@@ -261,6 +264,7 @@ static void SeqNextBatch(SeqScanState *node)
 					node->ss.ss_resultSlots.slotNum += 1;
 				}
 			}
+			scandesc->rs_pTup = &scandesc->rs_ctup;
 		}
 		else
 		{
