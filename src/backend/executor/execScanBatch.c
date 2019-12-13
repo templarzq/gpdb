@@ -392,32 +392,34 @@ ExecSeqScanBatch(ScanState *node,
 					* Form a projection tuple, store it in the result tuple slot
 					* and return it.
 					*/
-					piSlot = projInfo->pi_slot;
-					//使用result slot中的 tupletableslot
-					if(resultSlots->slots[resultRows]==NULL)
-					{
-						newSlot = ExecInitExtraTupleSlot(((SeqScanState*)node)->ss.ps.state);
-						ExecSetSlotDescriptor(newSlot, piSlot->tts_tupleDescriptor);
-						//has no memtup/heaptup,so should not free.
-						TupClearShouldFree(newSlot);
-					}
-					else{
-						newSlot = resultSlots->slots[resultRows];
-					}
+					// piSlot = projInfo->pi_slot;
+					// //使用result slot中的 tupletableslot
+					// if(resultSlots->slots[resultRows]==NULL)
+					// {
+					// 	newSlot = ExecInitExtraTupleSlot(((SeqScanState*)node)->ss.ps.state);
+					// 	ExecSetSlotDescriptor(newSlot, piSlot->tts_tupleDescriptor);
+					// 	//has no memtup/heaptup,so should not free.
+					// 	//TupClearShouldFree(newSlot);
+					// }
+					// else{
+					// 	newSlot = resultSlots->slots[resultRows];
+					// }
 					
-					projInfo->pi_slot = newSlot;
+					//projInfo->pi_slot = newSlot;
 
 					newSlot = ExecProject(projInfo, NULL);
 					//使用完毕，交换slot
-					projInfo->pi_slot = piSlot;
+					//projInfo->pi_slot = piSlot;
 
 					resultSlots->slots[resultRows] = newSlot;
 					resultSlots->slotNum += 1;
 					node->ss_resultSlots.handledCnt ++;
 					resultRows += 1;
-					if(resultRows == batchSize){
-						return;
-					}
+					return;
+					// resultRows += 1;
+					// if(resultRows == batchSize){
+					// 	return;
+					// }
 				}
 				else
 				{

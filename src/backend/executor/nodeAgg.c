@@ -1780,10 +1780,6 @@ ExecAgg(AggState *node)
 	 */
 	if (!node->agg_done)
 	{
-		TupleTableSlots *resultSlots = &node->as_resultSlots;
-		memset(resultSlots->slots,0,sizeof(resultSlots->slots));
-		resultSlots->handledCnt = 0;
-		resultSlots->slotNum = 0;
 		/* Dispatch based on strategy */
 		switch (node->phase->aggnode->aggstrategy)
 		{
@@ -1848,13 +1844,6 @@ agg_retrieve_direct(AggState *aggstate)
 	 * gset_lengths for the group we just completed (either by projecting a
 	 * row or by discarding it in the qual).
 	 */
-
-	TupleTableSlots *resultSlots = &aggstate->as_resultSlots;
-	bool bBreak = false;
-	int batchSize = sizeof(resultSlots->slots)/sizeof(TupleTableSlot*);
-	memset(resultSlots->slots,0,sizeof(resultSlots->slots));
-	resultSlots->handledCnt = 0;
-	resultSlots->slotNum = 0;
 
 	while (!aggstate->agg_done)
 	{
@@ -2055,8 +2044,10 @@ agg_retrieve_direct(AggState *aggstate)
 				 */
 
 				if(outerPlanState(aggstate)->type == T_SeqScanState 
-					//|| outerPlanState(aggstate)->type == T_SortState
+					|| outerPlanState(aggstate)->type == T_MotionState
 				){
+					TupleTableSlots *resultSlots = &aggstate->as_resultSlots;
+					int batchSize = sizeof(resultSlots->slots)/sizeof(TupleTableSlot*);
 					void (*aggfunc)(AggState *aggstate, AggStatePerGroup pergroup);
 					/* Reset per-input-tuple context after each tuple */
 					ResetExprContext(tmpcontext);
@@ -2073,6 +2064,7 @@ agg_retrieve_direct(AggState *aggstate)
 						//上个批次处理完毕
 						if(resultSlots->handledCnt >= resultSlots->slotNum){
 							resultSlots->slotNum = 0;
+							ResetExprContext(tmpcontext);
 							ExecProcNodeBatch(outerPlanState(aggstate),resultSlots);
 							resultSlots->handledCnt = 0;
 							if(resultSlots->slotNum == 0){
@@ -2100,7 +2092,6 @@ agg_retrieve_direct(AggState *aggstate)
 								* If we are grouping, check whether we've crossed a group
 								* boundary.
 								*/
-								
 								if (!execTuplesMatch(firstSlot,
 													outerslot,
 													node->numCols,
@@ -3026,6 +3017,13 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 	aggstate->mem_manager.free = cxt_free;
 	aggstate->mem_manager.manager = aggstate;
 	aggstate->mem_manager.realloc_ratio = 1;
+
+
+	TupleTableSlots *resultSlots = &aggstate->as_resultSlots;
+	int batchSize = sizeof(resultSlots->slots)/sizeof(TupleTableSlot*);
+	memset(resultSlots->slots,0,sizeof(resultSlots->slots));
+	resultSlots->handledCnt = 0;
+	resultSlots->slotNum = 0;
 
 	return aggstate;
 }
