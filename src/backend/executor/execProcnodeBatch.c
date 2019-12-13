@@ -374,8 +374,8 @@ void ExecProcNodeBatch(PlanState *node,TupleTableSlots *resultSlots)
 				break;
 
 			case T_SortState:
-				result = ExecSort((SortState *) node);
-				//ExecSortBatch((SortState *) node,resultSlots);
+				//result = ExecSort((SortState *) node);
+				ExecSortBatch((SortState *) node,resultSlots);
 				break;
 
 			case T_AggState:
@@ -450,7 +450,7 @@ void ExecProcNodeBatch(PlanState *node,TupleTableSlots *resultSlots)
 		}
 
 		if( nodeTag(node) == T_SeqScanState 
-			//|| nodeTag(node)==T_SortState
+			|| nodeTag(node)==T_SortState
 			|| nodeTag(node)==T_MotionState
 			)
 		{
