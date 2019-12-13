@@ -38,6 +38,7 @@
 
 #include "cdb/cdbexplain.h"
 #include "cdb/cdbvars.h"
+#include <unistd.h>
 
 #define BUFFER_INCREMENT_SIZE 1024
 #define HHA_MSG_LVL DEBUG2
@@ -904,13 +905,15 @@ agg_hash_initial_pass(AggState *aggstate)
 	ExprContext *tmpcontext = aggstate->tmpcontext; /* per input tuple context */
 	TupleTableSlot *outerslot = NULL;
 	bool streaming = ((Agg *) aggstate->ss.ps.plan)->streaming;
-	bool tuple_remaining = true;
+	bool tuple_remaining = true;	
+
+	TupleTableSlots *resultSlots = &aggstate->as_resultSlots;
+	int batchSize = sizeof(resultSlots->slots)/sizeof(TupleTableSlot*);
 
 	Assert(hashtable);
 	AssertImply(!streaming, aggstate->hashaggstatus == HASHAGG_BEFORE_FIRST_PASS);
 	elog(HHA_MSG_LVL,
 		 "HashAgg: initial pass -- beginning to load hash table");
-
 	/*
 	 * Check if an input tuple has been read, but not processed
 	 * because of lack of space before streaming the results
@@ -925,6 +928,10 @@ agg_hash_initial_pass(AggState *aggstate)
 	else
 	{
 		outerslot = fetch_input_tuple(aggstate);
+		if(TupIsNull(outerslot)){
+			tuple_remaining = false;
+			return tuple_remaining;
+		}
 	}
 
 	/*
@@ -935,105 +942,119 @@ agg_hash_initial_pass(AggState *aggstate)
 		aggfunc = combine_aggregates;
 	}else{
 		aggfunc = advance_aggregates;
-	
+	}
+
+
+
 	while(true)
 	{
 		HashKey hashkey;
 		bool isNew;
 		HashAggEntry *entry;
-
-		/* no more tuple. Done */
-		if (TupIsNull(outerslot))
-		{
-			tuple_remaining = false;
-			break;
-		}
-
-		if (aggstate->hashslot->tts_tupleDescriptor == NULL)
-		{
-			int size;
-							
-			/* Initialize hashslot by cloning input slot. */
-			ExecSetSlotDescriptor(aggstate->hashslot, outerslot->tts_tupleDescriptor); 
-			ExecStoreAllNullTuple(aggstate->hashslot);
-
-			size = ((Agg *)aggstate->ss.ps.plan)->numCols * sizeof(HashKey);
-			
-			hashtable->hashkey_buf = (HashKey *)palloc0(size);
-			hashtable->mem_for_metadata += size;
-		}
-
-		/* set up for advance_aggregates call */
-		tmpcontext->ecxt_outertuple = outerslot;
-
-		/* Find or (if there's room) build a hash table entry for the
-		 * input tuple's group. */
-		hashkey = calc_hash_value(aggstate, outerslot);
-		entry = lookup_agg_hash_entry(aggstate, (void *)outerslot,
-									  INPUT_RECORD_TUPLE, 0, hashkey, &isNew);
-		
-		if (entry == NULL)
-		{
-			if (GET_TOTAL_USED_SIZE(hashtable) > hashtable->mem_used)
-				hashtable->mem_used = GET_TOTAL_USED_SIZE(hashtable);
-
-			if (hashtable->num_ht_groups <= 1)
-				ereport(ERROR,
-						(errcode(ERRCODE_INTERNAL_ERROR),
-								 ERRMSG_GP_INSUFFICIENT_STATEMENT_MEMORY));
-			
-			/*
-			 * If stream_bottom is on, we store outerslot into hashslot, so that
-			 * we can process it later.
-			 */
-			if (streaming)
-			{
-				Assert(tuple_remaining);
-				hashtable->prev_slot = outerslot;
-				/* Stream existing entries instead of spilling */
+		int i;
+		//上个批次处理完毕
+		if(resultSlots->handledCnt >= resultSlots->slotNum){
+			resultSlots->slotNum = 0;
+			/* Read the next tuples */
+			fetch_input_tuples(aggstate,resultSlots);
+			if(resultSlots->slotNum==0){
+				tuple_remaining = false;
 				break;
 			}
+			resultSlots->handledCnt = 0;
+		}
 
-			if (!hashtable->is_spilling && aggstate->ss.ps.instrument && aggstate->ss.ps.instrument->need_cdb)
+		for(i=resultSlots->handledCnt;i<resultSlots->slotNum;++i){
+			outerslot = resultSlots->slots[i];
+			if (aggstate->hashslot->tts_tupleDescriptor == NULL)
 			{
-				/* Update in-memory hash table statistics before spilling. */
-				agg_hash_table_stat_upd(hashtable);
+				int size;
+
+				/* Initialize hashslot by cloning input slot. */
+				ExecSetSlotDescriptor(aggstate->hashslot, outerslot->tts_tupleDescriptor); 
+				ExecStoreAllNullTuple(aggstate->hashslot);
+
+				size = ((Agg *)aggstate->ss.ps.plan)->numCols * sizeof(HashKey);
+				
+				hashtable->hashkey_buf = (HashKey *)palloc0(size);
+				hashtable->mem_for_metadata += size;
 			}
 
-			spill_hash_table(aggstate);
+			/* set up for advance_aggregates call */
+			tmpcontext->ecxt_outertuple = outerslot;
 
+			/* Find or (if there's room) build a hash table entry for the
+			* input tuple's group. */
+			hashkey = calc_hash_value(aggstate, outerslot);
 			entry = lookup_agg_hash_entry(aggstate, (void *)outerslot,
-										  INPUT_RECORD_TUPLE, 0, hashkey, &isNew);
-		}
-
-		setGroupAggs(hashtable, entry);
-		
-		if (isNew)
-		{
-			int tup_len = memtuple_get_size((MemTuple)entry->tuple_and_aggs);
-			MemSet((char *)entry->tuple_and_aggs + MAXALIGN(tup_len), 0,
-				   aggstate->numaggs * sizeof(AggStatePerGroupData));
-			initialize_aggregates(aggstate, hashtable->groupaggs->aggs, 0);
-		}
+										INPUT_RECORD_TUPLE, 0, hashkey, &isNew);
 			
-		/* Advance the aggregates */
-		aggfunc(aggstate, hashtable->groupaggs->aggs);
+			if (entry == NULL)
+			{
+				if (GET_TOTAL_USED_SIZE(hashtable) > hashtable->mem_used)
+					hashtable->mem_used = GET_TOTAL_USED_SIZE(hashtable);
 
-		hashtable->num_tuples++;
+				if (hashtable->num_ht_groups <= 1)
+					ereport(ERROR,
+							(errcode(ERRCODE_INTERNAL_ERROR),
+									ERRMSG_GP_INSUFFICIENT_STATEMENT_MEMORY));
+				
+				/*
+				* If stream_bottom is on, we store outerslot into hashslot, so that
+				* we can process it later.
+				*/
+				if (streaming)
+				{
+					Assert(tuple_remaining);
+					hashtable->prev_slot = outerslot;
+					/* Stream existing entries instead of spilling */
+					break;
+				}
 
-		/* Reset per-input-tuple context after each tuple */
-		ResetExprContext(tmpcontext);
+				if (!hashtable->is_spilling && aggstate->ss.ps.instrument && aggstate->ss.ps.instrument->need_cdb)
+				{
+					/* Update in-memory hash table statistics before spilling. */
+					agg_hash_table_stat_upd(hashtable);
+				}
 
-		if (streaming && !HAVE_FREESPACE(hashtable))
-		{
-			Assert(tuple_remaining);
-			ExecClearTuple(aggstate->hashslot);
-			/* Pause and stream entries before reading the next tuple */
+				spill_hash_table(aggstate);
+
+				entry = lookup_agg_hash_entry(aggstate, (void *)outerslot,
+											INPUT_RECORD_TUPLE, 0, hashkey, &isNew);
+			}
+
+			setGroupAggs(hashtable, entry);
+			
+			if (isNew)
+			{
+				int tup_len = memtuple_get_size((MemTuple)entry->tuple_and_aggs);
+				MemSet((char *)entry->tuple_and_aggs + MAXALIGN(tup_len), 0,
+					aggstate->numaggs * sizeof(AggStatePerGroupData));
+				initialize_aggregates(aggstate, hashtable->groupaggs->aggs, 0);
+			}
+				
+			/* Advance the aggregates */
+			aggfunc(aggstate, hashtable->groupaggs->aggs);
+
+			hashtable->num_tuples++;
+
+			/* Reset per-input-tuple context after each tuple */
+			ResetExprContext(tmpcontext);
+
+			if (streaming && !HAVE_FREESPACE(hashtable))
+			{
+				Assert(tuple_remaining);
+				ExecClearTuple(aggstate->hashslot);
+				/* Pause and stream entries before reading the next tuple */
+				break;
+			}
+		}
+
+		resultSlots->handledCnt = i;
+		//未处理完批次，no space/streaming buttom
+		if(i < resultSlots->slotNum){
 			break;
 		}
-
-		/* Read the next tuple */
-		outerslot = fetch_input_tuple(aggstate);
 	}
 
 	if (GET_TOTAL_USED_SIZE(hashtable) > hashtable->mem_used)
